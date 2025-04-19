@@ -143,9 +143,7 @@ const scene = new THREE.Scene();
 scene.add(mesh);
 scene.add(light);
 
-const camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.3, 1000);
-camera.position.set(0, 0, 1);
-camera.lookAt(new Vector3(0, 0, 0));
+const camera = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0.5, -0.5);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
@@ -159,11 +157,26 @@ renderer.domElement.style.height = '100%';
 
 document.body.appendChild(renderer.domElement);
 
+let videoLoaded = false;
+const video = document.createElement("video");
+const resizeVideo = () => {
+	const windowAR = window.innerWidth / window.innerHeight;
+	const videoAR = video.videoWidth / video.videoHeight;
+	if (videoAR > windowAR) {
+		mesh.scale.set(1, windowAR / videoAR, 1);
+	} else {
+		mesh.scale.set(videoAR / windowAR, 1, 1);
+	}
+}
+video.addEventListener("loadedmetadata", () => {
+	videoLoaded = true;
+	resizeVideo();
+});
+
 const windowResize = () => {
 	renderer.setSize(window.innerWidth, window.innerHeight);
 
-	camera.aspect = window.innerWidth / window.innerHeight;
-	camera.updateProjectionMatrix();
+	if (videoLoaded) resizeVideo();
 }
 window.addEventListener('resize', windowResize);
 
@@ -177,29 +190,12 @@ const animate = (msTime) => {
 
 	if (renderer.getPixelRatio() !== window.devicePixelRatio) renderer.setPixelRatio(window.devicePixelRatio);
 
-	// mesh.rotation.x = 0 * degToRad;
-	// mesh.rotation.y = msTime/1001;
-	// mesh.rotation.z = msTime/1002;
-
-	camera.lookAt(scene.position);
-
-	// console.log(mesh);
 	renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(animate);
 
 const gui = new GUI();
 
-// get 'Enabled'() {
-
-// 	return renderer.localClippingEnabled;
-
-// },
-// set 'Enabled'( v ) {
-
-// 	renderer.localClippingEnabled = v;
-
-// },
 const settings = {
 	flip: false
 };
@@ -255,7 +251,6 @@ async function getMedia(constraints) {
 		stream = await navigator.mediaDevices.getUserMedia(constraints);
 		console.log(stream.getAudioTracks())
 		console.log(stream.getVideoTracks())
-		const video = document.createElement("video");
 		video.srcObject = stream;
 		//height: videoSettings.height,
 		//width: videoSettings.width,
@@ -273,28 +268,23 @@ async function getMedia(constraints) {
 		mesh.material.needsUpdate = true;
 		mesh.material.side = THREE.FrontSide;
 		// uniforms.uSampler.value = texture;
-
-		video.addEventListener("loadedmetadata", () => {
-			const windowAR = window.innerWidth / window.innerHeight;
-			const videoAR = video.videoWidth / video.videoHeight;
-			console.log(windowAR, videoAR);
-			mesh.scale.set(video.videoWidth / video.videoHeight, 1, 1);
-		});
 	} catch (err) {
 		console.log(err);
 		/* handle the error */
 	}
 }
-// const button = document.createElement('button');
-// button.textContent = "Preview";
-// button.onclick = () => {
-getMedia({
-	// audio: true,
-	video: true,
-});
-// }
-// button.style.position = 'absolute';
-// button.style.top = '0px';
-// button.style.left = '0px';
+const button = document.createElement('button');
+button.textContent = "Preview";
+button.onclick = () => {
+	videoLoaded = false;
+	getMedia({
+		audio: false,
+		video: true,
+	});
+}
+button.style.position = 'absolute';
+button.style.top = '0px';
+button.style.left = '0px';
+getMedia({ audio: false, video: true });
 
-// document.body.appendChild(button);
+document.body.appendChild(button);
