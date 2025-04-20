@@ -132,16 +132,14 @@ const material = new THREE.ShaderMaterial({
 });
 
 const geometry = new THREE.PlaneGeometry(1, 1);
-const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x000000 }));
+mesh.material.side = THREE.FrontSide;
 const degToRad = Math.PI / 180;
 const radToDeg = 180 / Math.PI;
 
-const light = new THREE.AmbientLight(0xffffff);
-// light.position.set( 0, 0, 1 );
-
 const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
 scene.add(mesh);
-scene.add(light);
 
 const camera = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0.5, -0.5);
 
@@ -159,6 +157,8 @@ document.body.appendChild(renderer.domElement);
 
 let videoLoaded = false;
 const video = document.createElement("video");
+video.autoplay = true;
+video.playsinline = true;
 const resizeVideo = () => {
 	const windowAR = window.innerWidth / window.innerHeight;
 	const videoAR = video.videoWidth / video.videoHeight;
@@ -170,6 +170,7 @@ const resizeVideo = () => {
 }
 video.addEventListener("loadedmetadata", () => {
 	videoLoaded = true;
+	mesh.material.color.set(0xffffff);
 	resizeVideo();
 });
 
@@ -236,7 +237,6 @@ if (!navigator.mediaDevices?.enumerateDevices) {
 		.then((devices) => {
 			devices.forEach((device) => {
 				// console.log(device);
-				// console.log(`${device.kind}: ${device.label} id = ${device.deviceId}`);
 			});
 		})
 		.catch((err) => {
@@ -249,42 +249,35 @@ async function getMedia(constraints) {
 
 	try {
 		stream = await navigator.mediaDevices.getUserMedia(constraints);
-		console.log(stream.getAudioTracks())
-		console.log(stream.getVideoTracks())
 		video.srcObject = stream;
 		//height: videoSettings.height,
 		//width: videoSettings.width,
-		video.autoplay = true;
-		video.playsinline = true;
 		video.play();
-
-
 
 		//document.body.appendChild(video);
 		const texture = new THREE.VideoTexture(video);
 		texture.colorSpace = THREE.SRGBColorSpace;
 		texture.minFilter = THREE.LinearFilter;
+		if (mesh.material.map) mesh.material.map.dispose();
 		mesh.material.map = texture;
 		mesh.material.needsUpdate = true;
-		mesh.material.side = THREE.FrontSide;
 		// uniforms.uSampler.value = texture;
 	} catch (err) {
 		console.log(err);
 		/* handle the error */
 	}
 }
+
+const constraints = { audio: false, video: true };
 const button = document.createElement('button');
 button.textContent = "Preview";
 button.onclick = () => {
 	videoLoaded = false;
-	getMedia({
-		audio: false,
-		video: true,
-	});
+	getMedia(constraints);
 }
 button.style.position = 'absolute';
 button.style.top = '0px';
 button.style.left = '0px';
-getMedia({ audio: false, video: true });
+getMedia(constraints);
 
 document.body.appendChild(button);
