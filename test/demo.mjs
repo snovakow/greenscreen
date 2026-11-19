@@ -56,6 +56,10 @@ const READ = `(points) => {
     pixels: points.map(([x, y]) => Array.from(context.getImageData(x, y, 1, 1).data)) }
 }`
 
+// How long the first keyed picture may take: Vite's dev server can take seconds to serve the page, and the fake camera
+// seconds more to start. Later steps wait the usual 5 s
+const STARTUP = 20_000
+
 // A point in each region: the green half, the blue half, and the red square, and a point in the blue at the top that
 // the cut takes out once its top-left corner is dragged in
 const POINTS = { green: [100, 240], blue: [540, 100], red: [320, 240], cutOut: [340, 20] }
@@ -194,7 +198,7 @@ try {
   }
 
   console.log('\n# demo')
-  const first = await until((at) => at.green[3] === 0 && at.blue[3] === 255)
+  const first = await until((at) => at.green[3] === 0 && at.blue[3] === 255, POINTS, STARTUP)
   expect('keys the camera at its own size', first?.width === WIDTH && first?.height === HEIGHT, `${first?.width}×${first?.height}`)
   // Which backend 'auto' came to, from the kind of context the keyed canvas has: WebGPU's shows its picture through a
   // 2D one. It should be WebGPU where there's a hardware adapter
