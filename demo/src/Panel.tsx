@@ -12,9 +12,9 @@ const EDITING = 'Drag the corners…'
 const PICK_KEY = 'Pick key'
 const PICKING = 'Click the preview…'
 
-// The similarity a picked key starts with. The default is set for a preset and a screen as a camera sees it, which is
-// far from the preset's pure colour. A key picked from the screen is near the screen's own colours, so it needs less
-// reach, and at the default it takes out colours of the subject's that are near the screen's
+// The similarity a picked key starts with. The default is set for the green preset and screens as cameras see them,
+// from bright to dull. A key picked from the screen is near the screen's own colours, so it needs less reach, and at
+// the default it takes out colours of the subject's that are near the screen's
 const PICKED_SIMILARITY = 0.5
 
 type KeyType = keyof typeof KEY_COLORS | 'custom'

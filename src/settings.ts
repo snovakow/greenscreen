@@ -60,9 +60,11 @@ export const RANGES: Readonly<Record<NumericSetting, Range>> = Object.freeze({
   gamma: { min: -1, max: 1, step: 0.01 },
 })
 
-// Screen colours to start from. A key picked from the screen itself, as it's lit, keys better
+// Screen colours to start from. Green is pure green's hue at 60% of its strength, as a green screen looks to a camera:
+// the default similarity takes out screens from bright to dull with it, where pure green leaves the duller ones
+// showing. A key picked from the screen itself, as it's lit, keys better still
 export const KEY_COLORS: Readonly<{ green: number; blue: number; magenta: number }> = Object.freeze({
-  green: 0x00ff00,
+  green: 0x33cc33,
   blue: 0x0000ff,
   magenta: 0xff00ff,
 })
@@ -75,11 +77,10 @@ const WHOLE: readonly Readonly<Point>[] = Object.freeze([
   Object.freeze({ x: 0, y: 1 }),
 ])
 
-// Green keyed out of the picture as it comes, uncut and unchanged otherwise. The similarity is set for a preset key
-// and a screen as a camera sees it: duller than the preset's pure colour, and darker still toward its edges, where the
-// light falls off. A key picked from the screen is much nearer the screen's own colours, and keys it at about 0.5,
-// which keeps more of the colours near the key. Spill is a share of the way from similarity to grey, so it follows a
-// similarity changed
+// Green keyed out of the picture as it comes, uncut and unchanged otherwise. The similarity is set for the green preset
+// and screens as cameras see them, from bright to dull and darker toward their edges, where the light falls off. A key
+// picked from the screen is much nearer the screen's own colours, and keys it at about 0.5, which keeps more of the
+// colours near the key. Spill is a share of the way from similarity to grey, so it follows a similarity changed
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   key: true,
   keyColor: KEY_COLORS.green,
