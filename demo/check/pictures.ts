@@ -34,13 +34,13 @@ export const COLOURS: { name: string; rgba: [number, number, number, number] }[]
 
 const COLUMNS = 6
 
-// The blocks laid out COLUMNS across, as ImageData. A colour's block is at (index % COLUMNS, index / COLUMNS)
-export function testPicture(): ImageData {
-  const rows = Math.ceil(COLOURS.length / COLUMNS)
+// The colours' blocks laid out COLUMNS across, as ImageData. A colour's block is at (index % COLUMNS, index / COLUMNS)
+export function blocks(colours: readonly (readonly number[])[]): ImageData {
+  const rows = Math.ceil(colours.length / COLUMNS)
   const width = COLUMNS * BLOCK
   const height = rows * BLOCK
   const image = new ImageData(width, height)
-  COLOURS.forEach(({ rgba }, index) => {
+  colours.forEach((rgba, index) => {
     const bx = (index % COLUMNS) * BLOCK
     const by = Math.floor(index / COLUMNS) * BLOCK
     for (let y = by; y < by + BLOCK; y++) {
@@ -50,11 +50,21 @@ export function testPicture(): ImageData {
   return image
 }
 
+// The middle of the block of the colour at index
+export function centreOf(index: number): [number, number] {
+  return [(index % COLUMNS) * BLOCK + BLOCK / 2, Math.floor(index / COLUMNS) * BLOCK + BLOCK / 2]
+}
+
+// The test picture's blocks
+export function testPicture(): ImageData {
+  return blocks(COLOURS.map(({ rgba }) => rgba))
+}
+
 // The middle of a colour's block
 export function blockCentre(name: string): [number, number] {
   const index = COLOURS.findIndex((colour) => colour.name === name)
   if (index < 0) throw new Error(`No colour ${name}`)
-  return [(index % COLUMNS) * BLOCK + BLOCK / 2, Math.floor(index / COLUMNS) * BLOCK + BLOCK / 2]
+  return centreOf(index)
 }
 
 // A canvas holding the picture. The canvas keeps its pixels premultiplied, so see-through ones come back a little

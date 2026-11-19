@@ -4,6 +4,8 @@ import { assert, check, random, Skip } from './harness.ts'
 import type { Report, Subject } from './harness.ts'
 import {
   blockCentre,
+  blocks,
+  centreOf,
   COLOURS,
   otherPicture,
   picture,
@@ -17,6 +19,11 @@ import {
 } from './pictures.ts'
 import { compare, delay, frames, pixel, readKeyed, same } from './read.ts'
 import { reference } from './reference.ts'
+import { SCREENS } from './screens.ts'
+import type { RGB } from './screens.ts'
+
+// The similarity a key picked from the screen keys it at, as the README and the demo have it
+const PICKED_SIMILARITY = 0.5
 
 // How far a channel may be from the reference, out of 255: the shader's single precision, rounding to 8 bits, and the
 // readback's own rounding
@@ -126,6 +133,48 @@ export async function keyingChecks(report: Report, subject: Subject): Promise<vo
         const off = Math.max(...got.map((value, c) => Math.abs(value - want[c])))
         assert(off <= tolerance, `${name} came out ${got.join(',')}, not ${want.join(',')}`)
       }
+    })
+
+    // Keys blocks of the colours, and says which of out aren't taken out and which of whole aren't kept whole. The
+    // picture is the test picture's size, the rest of it grey, as three.js keeps a texture at the size it first had
+    const outAndWhole = async (out: readonly RGB[], whole: readonly RGB[], settings: Partial<Settings>) => {
+      const colours = [...out, ...whole]
+      const grey = Array.from({ length: COLOURS.length - colours.length }, () => [128, 128, 128, 255])
+      const keyed = await subject.key(toCanvas(blocks([...colours.map((rgb) => [...rgb, 255]), ...grey])), settings)
+      const read = readKeyed(keyed.canvas, keyed.width, keyed.height)
+      const failures: string[] = []
+      colours.forEach((rgb, index) => {
+        const [x, y] = centreOf(index)
+        const alpha = pixel(read, keyed.width, x, y)[3]
+        if (index < out.length && alpha > 1) failures.push(`${rgb.join(',')} kept, alpha ${alpha}`)
+        if (index >= out.length && alpha < 254) failures.push(`${rgb.join(',')} cut into, alpha ${alpha}`)
+      })
+      return failures
+    }
+
+    // Real screens as cameras recorded them, each keyed with the key a click on it picks. It's taken out to its darkest
+    // and its farthest from that key, and the subject's nearest colours are kept whole, at a similarity of about 0.46
+    // to 0.57
+    await check(report, group, `Keys real screens with a key picked from each, at ${PICKED_SIMILARITY}`, async () => {
+      const failures: string[] = []
+      for (const screen of SCREENS) {
+        const keyColor = (screen.key[0] << 16) | (screen.key[1] << 8) | screen.key[2]
+        const found = await outAndWhole(screen.screen, screen.nearPicked, { keyColor, similarity: PICKED_SIMILARITY })
+        failures.push(...found.map((failure) => `${screen.name}: ${failure}`))
+      }
+      assert(failures.length === 0, failures.join('; '))
+    })
+
+    // The same screens with the default key: each one's middle, darkest and brightest colours are taken out, and the
+    // subject's nearest colours are kept whole, at a similarity of about 0.74 to 0.77. With pure green as the key, the
+    // duller screens stay
+    await check(report, group, 'Keys real screens with the default key', async () => {
+      const failures: string[] = []
+      for (const screen of SCREENS) {
+        const found = await outAndWhole(screen.screen.slice(0, 3), screen.nearDefault, {})
+        failures.push(...found.map((failure) => `${screen.name}: ${failure}`))
+      }
+      assert(failures.length === 0, failures.join('; '))
     })
 
     await check(report, group, 'Matches the reference, default settings', async () => {

@@ -38,7 +38,7 @@ The keyer draws into `keyer.canvas`. That canvas keeps its picture between rende
 To change the key, call `set()` with the settings to change:
 
 ```js
-keyer.set({ keyColor: 0x28be3c, similarity: 0.4, crop: true, corners })
+keyer.set({ keyColor: 0x28be3c, similarity: 0.5, crop: true, corners })
 ```
 
 ### Without a build step
