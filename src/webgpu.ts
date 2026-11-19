@@ -14,6 +14,8 @@ const BUFFER_UNIFORM = 0x40
 // One device for every keyer on the page, as a page can have many, and WebGPU, unlike WebGL, doesn't need a context of
 // its own for each. It's asked for once, and asked for again only after it's lost
 let shared: Promise<GPUDevice> | null = null
+// The device once it's there, for a keyer made after it to start with at once
+let current: GPUDevice | null = null
 
 // Whether 'auto' takes WebGPU, found once, and again after the device is lost. known is what it came to, for a keyer to
 // choose by at once, and null until then
@@ -29,13 +31,26 @@ export function requestDevice(given?: GPUAdapter): Promise<GPUDevice> {
     void device.lost.then(() => {
       if (shared !== attempt) return
       shared = null
+      current = null
       preferred = null
       known = null
     })
     return device
   })()
   shared = attempt
+  // Before anything that waits for it goes on, as this waits first
+  void attempt.then(
+    (device) => {
+      if (shared === attempt) current = device
+    },
+    () => {},
+  )
   return attempt
+}
+
+// The device, where it has been had already and not lost since
+export function currentDevice(): GPUDevice | null {
+  return current
 }
 
 async function requestAdapter(): Promise<GPUAdapter> {

@@ -328,6 +328,20 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
     }
   })
 
+  await check(report, group, 'Draws from its first render once warmUp() has resolved', async () => {
+    await warmUp(backend)
+    // Rendered in the task that makes it, with no wait for its backend
+    const keyer = new Greenscreen(source, { backend })
+    try {
+      assert(keyer.backend === backend, 'it had no backend at once')
+      assert(keyer.render(), 'its first render drew nothing')
+      const result = compare(readKeyed(keyer.canvas, width, height), expected, width, TOLERANCE)
+      assert(result.over === 0, `${result.over} pixels off: ${result.detail}`)
+    } finally {
+      keyer.dispose()
+    }
+  })
+
   await check(report, group, 'Draws only when something has changed', async () => {
     const bitmap = await createImageBitmap(input, { premultiplyAlpha: 'none' })
     const keyer = await make(bitmap)
@@ -489,10 +503,15 @@ export async function apiChecks(report: Report): Promise<void> {
     } finally {
       first.dispose()
     }
-    // Once the choice is known, a keyer has its backend as soon as it can: a WebGL2 one at once
-    const next = new Greenscreen()
+    // Once warmUp() has resolved, a keyer has its backend at once, and draws from its first render in the same task
+    const still = document.createElement('canvas')
+    still.width = 4
+    still.height = 4
+    still.getContext('2d')?.fillRect(0, 0, 4, 4)
+    const next = new Greenscreen(still)
     try {
-      if (expected === 'webgl') assert(next.backend === 'webgl', 'a WebGL2 keyer waited for its backend')
+      assert(next.backend === expected, 'a keyer made after warmUp() had no backend at once')
+      assert(next.render(), 'its first render drew nothing')
       assert((await next.initialized) === expected, 'a second keyer chose differently')
     } finally {
       next.dispose()

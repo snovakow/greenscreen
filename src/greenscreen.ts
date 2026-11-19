@@ -5,7 +5,15 @@ import type { Settings } from './settings.ts'
 import { Feed } from './source.ts'
 import type { BackendName, Canvas, Source } from './types.ts'
 import { WebGLRenderer } from './webgl.ts'
-import { knownPreference, pipelineFor, preferredFormat, prefersWebGPU, requestDevice, WebGPURenderer } from './webgpu.ts'
+import {
+  currentDevice,
+  knownPreference,
+  pipelineFor,
+  preferredFormat,
+  prefersWebGPU,
+  requestDevice,
+  WebGPURenderer,
+} from './webgpu.ts'
 
 // The backend to draw with: 'auto' lets the keyer choose
 export type BackendChoice = 'auto' | BackendName
@@ -91,11 +99,20 @@ export class Greenscreen<C extends Canvas = HTMLCanvasElement> {
   }
 
   #useWebGPU(): Promise<BackendName> {
-    return requestDevice().then((device): BackendName => {
+    const start = (device: GPUDevice): BackendName => {
       if (this.#disposed) throw new Error('Greenscreen: disposed before WebGPU was ready')
       this.#renderer = new WebGPURenderer(this.canvas, device, this.#events)
       return 'webgpu'
-    })
+    }
+    // With the device there already, as it is once warmUp() has resolved, the keyer starts at once, and its first
+    // render draws, even in the task that made it
+    const device = currentDevice()
+    if (!device) return requestDevice().then(start)
+    try {
+      return Promise.resolve(start(device))
+    } catch (error) {
+      return Promise.reject(error)
+    }
   }
 
   #events: RendererEvents = {
