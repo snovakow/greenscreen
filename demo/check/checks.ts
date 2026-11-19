@@ -2,7 +2,19 @@ import { DEFAULT_SETTINGS, Greenscreen, KEY_COLORS, warmUp } from '@snovakow/gre
 import type { BackendName, Point, Settings } from '@snovakow/greenscreen'
 import { assert, check, random, Skip } from './harness.ts'
 import type { Report, Subject } from './harness.ts'
-import { blockCentre, COLOURS, otherPicture, picture, recordedVideo, testPicture, toCanvas, toImage, toVideo } from './pictures.ts'
+import {
+  blockCentre,
+  COLOURS,
+  otherPicture,
+  picture,
+  recordedVideo,
+  rgbaOf,
+  testPicture,
+  toCanvas,
+  toImage,
+  toVideo,
+  widePicture,
+} from './pictures.ts'
 import { compare, delay, frames, pixel, readKeyed, same } from './read.ts'
 import { reference } from './reference.ts'
 
@@ -57,6 +69,25 @@ export function randomSettings(next: () => number): Partial<Settings> {
 async function until(test: () => boolean, timeout: number) {
   const started = performance.now()
   while (!test() && performance.now() - started < timeout) await delay(20)
+}
+
+// The widest picture the backend should take here: the largest texture the WebGPU adapter offers, or WebGL2's largest
+// texture and viewport, from a context of its own that's let go of at once
+async function textureLimit(backend: BackendName): Promise<number> {
+  if (backend === 'webgpu') {
+    const adapter = navigator.gpu ? await navigator.gpu.requestAdapter() : null
+    if (!adapter) throw new Skip('there is no WebGPU adapter here')
+    return adapter.limits.maxTextureDimension2D
+  }
+  const gl = document.createElement('canvas').getContext('webgl2')
+  if (!gl) throw new Skip('there is no WebGL2 here')
+  try {
+    const viewport: unknown = gl.getParameter(gl.MAX_VIEWPORT_DIMS)
+    if (!(viewport instanceof Int32Array)) throw new Error('WebGL2 gave no viewport size')
+    return Math.min(Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)), viewport[0], viewport[1])
+  } finally {
+    gl.getExtension('WEBGL_lose_context')?.loseContext()
+  }
 }
 
 // What every way of keying must do: key the key out and keep the rest, and match the reference over the defaults and
@@ -389,6 +420,34 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
     } finally {
       keyer.dispose()
     }
+  })
+
+  // As wide as the GPU's textures go, which is past the 8192 pixels a WebGPU device takes unless it asks for more, on a
+  // GPU that goes further. A picture wider still is refused, and the keyer isn't ready, rather than ready with nothing
+  await check(report, group, 'Keys a picture as wide as its textures go, and refuses a wider one', async () => {
+    const limit = await textureLimit(backend)
+    const widest = await make(toCanvas(widePicture(limit)))
+    try {
+      assert(widest.render(), `render() drew nothing for a picture ${limit} wide`)
+      const { width: drawn, height: tall } = widest.canvas
+      assert(drawn === limit, `drew ${drawn}×${tall} of a picture ${limit} wide`)
+      const read = readKeyed(widest.canvas, drawn, tall)
+      const left = pixel(read, drawn, 2, 2)
+      assert(left[3] <= 1, `green kept, alpha ${left[3]}`)
+      const right = pixel(read, drawn, drawn - 3, 2)
+      const red = rgbaOf('red')
+      const off = Math.max(...right.map((value, c) => Math.abs(value - red[c])))
+      assert(off <= TOLERANCE, `red came out ${right.join(',')}`)
+    } finally {
+      widest.dispose()
+    }
+    const wider = await make(toCanvas(widePicture(limit + 1)))
+    try {
+      assert(!wider.render() && !wider.ready && wider.frame === 0, `drew a picture ${limit + 1} wide`)
+    } finally {
+      wider.dispose()
+    }
+    return `${limit} wide`
   })
 
   await check(report, group, 'Copies its settings and checks them', async () => {

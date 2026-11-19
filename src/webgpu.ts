@@ -1,5 +1,5 @@
 import { PACKED_LENGTH } from './pack.ts'
-import { contextOf } from './renderer.ts'
+import { contextOf, tooLarge } from './renderer.ts'
 import type { Context2D, Renderer, RendererEvents } from './renderer.ts'
 import { SHADER } from './shader.wgsl.ts'
 import type { Canvas, Source } from './types.ts'
@@ -22,12 +22,15 @@ let current: GPUDevice | null = null
 let preferred: Promise<boolean> | null = null
 let known: boolean | null = null
 
-// The page's device, from the adapter given or the browser's own
+// The page's device, from the adapter given or the browser's own. It's asked for with the largest texture the adapter
+// has, as a device takes pictures of only 8192 pixels a side unless more is asked for
 export function requestDevice(given?: GPUAdapter): Promise<GPUDevice> {
   if (shared) return shared
   const attempt = (async () => {
     const adapter = given ?? (await requestAdapter())
-    const device = await adapter.requestDevice()
+    const device = await adapter.requestDevice({
+      requiredLimits: { maxTextureDimension2D: adapter.limits.maxTextureDimension2D },
+    })
     void device.lost.then(() => {
       if (shared !== attempt) return
       shared = null
@@ -201,10 +204,13 @@ export class WebGPURenderer implements Renderer {
   }
 
   // The picture as it comes, top row first and not premultiplied, in a texture of its size. copyExternalImageToTexture
-  // takes every kind of source, a video by way of a 2D canvas
+  // takes every kind of source, a video by way of a 2D canvas. A picture larger than the device's textures throws, as
+  // a texture of its size would be made without an error thrown, and never drawn
   upload(source: Source, width: number, height: number) {
     if (this.#lost) return
     const device = this.#device
+    const limit = device.limits.maxTextureDimension2D
+    if (width > limit || height > limit) throw tooLarge(width, height, 'WebGPU', limit)
     let texture = this.#texture
     if (!texture || texture.width !== width || texture.height !== height) {
       texture?.destroy()

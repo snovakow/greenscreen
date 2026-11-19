@@ -162,7 +162,7 @@ new Greenscreen(source?, { canvas?, backend?, settings?, onLost?, onRestored? })
 - **`canvas`:** where the keyed picture is drawn.
 - **`backend`:** `'webgl'`, `'webgpu'`, or `null` until it has one.
 - **`initialized`:** a promise that resolves with the backend, or rejects if it can't be had.
-- **`ready`:** whether `canvas` holds a picture of the current source.
+- **`ready`:** whether `canvas` holds a picture of the current source. It stays false, with a warning in the console, for a picture wider or taller than the GPU's textures go, often 8192 or 16384 pixels.
 - **`frame`:** counts the pictures drawn.
 - **`settings`:** the current settings.
 - **`source`:** can be read and set.

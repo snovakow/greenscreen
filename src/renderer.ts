@@ -5,11 +5,16 @@ export interface Renderer {
   readonly backend: BackendName
   // True from the moment the graphics context or device is lost until it's been made again
   readonly lost: boolean
-  // Takes the source's current picture into the texture, at its size
+  // Takes the source's current picture into the texture, at its size. Throws where the picture can't be taken
   upload(source: Source, width: number, height: number): void
   // Keys the texture into the canvas, sized to the texture, with the packed settings
   draw(settings: Float32Array<ArrayBuffer>): void
   dispose(): void
+}
+
+// What upload() throws for a picture larger than the backend's textures
+export function tooLarge(width: number, height: number, backend: string, limit: number): RangeError {
+  return new RangeError(`Greenscreen: the picture is ${width}×${height}, and ${backend} here takes up to ${limit} a side`)
 }
 
 // What a renderer tells its keyer

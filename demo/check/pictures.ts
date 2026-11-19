@@ -88,6 +88,26 @@ export function otherPicture(): ImageData {
   return image
 }
 
+// A strip as wide as asked and a few pixels tall: its left half screen green, which the default key takes out, and its
+// right half red, which it keeps
+export function widePicture(width: number): ImageData {
+  const height = 4
+  const image = new ImageData(width, height)
+  const left = rgbaOf('screen green')
+  const right = rgbaOf('red')
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) image.data.set(x < width / 2 ? left : right, (y * width + x) * 4)
+  }
+  return image
+}
+
+// A colour of the test picture's, by its name
+export function rgbaOf(name: string): [number, number, number, number] {
+  const found = COLOURS.find((each) => each.name === name)
+  if (!found) throw new Error(`No colour ${name}`)
+  return found.rgba
+}
+
 // An image element showing the canvas's picture, from a PNG of it
 export async function toImage(canvas: HTMLCanvasElement): Promise<HTMLImageElement> {
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))

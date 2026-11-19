@@ -1,4 +1,4 @@
-import { contextOf } from './renderer.ts'
+import { contextOf, tooLarge } from './renderer.ts'
 import type { Renderer, RendererEvents } from './renderer.ts'
 import { FRAGMENT, VERTEX } from './shader.glsl.ts'
 import type { Canvas, Source } from './types.ts'
@@ -24,6 +24,8 @@ export class WebGLRenderer implements Renderer {
   #texture: WebGLTexture | null = null
   #width = 0
   #height = 0
+  // The most pixels a side it can take and draw
+  #limit = 0
   #lost = false
 
   constructor(canvas: Canvas, events: RendererEvents) {
@@ -74,10 +76,19 @@ export class WebGLRenderer implements Renderer {
     this.#texture = texture
     this.#width = 0
     this.#height = 0
+    // The widest picture it can take and draw: its largest texture, and its largest viewport, as the canvas is sized to
+    // the picture. A lost context says neither, and draws nothing until it's back
+    const texture2D: unknown = gl.getParameter(gl.MAX_TEXTURE_SIZE)
+    const viewport: unknown = gl.getParameter(gl.MAX_VIEWPORT_DIMS)
+    const sides = [texture2D, ...(viewport instanceof Int32Array ? viewport : [])]
+    this.#limit = Math.min(...sides.filter((side) => typeof side === 'number'))
   }
 
+  // A picture larger than the context's textures throws, as it would otherwise be drawn black
   upload(source: Source, width: number, height: number) {
     if (this.#lost) return
+    const limit = this.#limit
+    if (width > limit || height > limit) throw tooLarge(width, height, 'WebGL2', limit)
     const gl = this.#gl
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, this.#texture)
