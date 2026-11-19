@@ -1,6 +1,6 @@
 {
   "name": "@snovakow/greenscreen",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "A chroma keyer for the browser, on WebGPU or WebGL2: a video, image or canvas in, the keyed picture out. For plain JavaScript, TypeScript, React and three.js.",
   "keywords": [
     "chroma key",
