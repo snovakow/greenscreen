@@ -153,7 +153,7 @@ new Greenscreen(source?, { canvas?, backend?, settings?, onLost?, onRestored? })
 ```
 
 **Construction options:**
-- **`source`:** a `<video>`, `<img>`, `<canvas>`, `OffscreenCanvas`, `ImageBitmap`, `ImageData` or `VideoFrame`. You can set it later.
+- **`source`:** a `<video>`, `<img>`, `<canvas>`, `OffscreenCanvas`, `ImageBitmap`, `ImageData` or `VideoFrame`. You can set it later. An animated image, such as a GIF, is keyed as a still. For motion, use a video, or set each frame as the source as a `VideoFrame`, which `ImageDecoder` can decode.
 - **`canvas`:** the canvas to draw in. It must be one no context has been taken from. Without it, the keyer makes its own.
 - **`backend`:** `'auto'` (the default), `'webgpu'` or `'webgl'`. See [Backends](#backends).
 - **`onLost`, `onRestored`:** called when the graphics context or device is lost and when it comes back. The keyer redraws on the next render after it's back.
