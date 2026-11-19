@@ -1,18 +1,24 @@
 // The demo app, driven in headless Chrome with a fake camera: the picture keyed, then Flip, Pick key, Edit crop with a
-// drag of a corner, and Reset, each read back from the keyed canvas. Serves the demo's build, or with --dev its Vite
-// server. Exits 1 if a step fails
+// drag of a corner, and Reset. Then a picture opened with File, a video dropped on the page, the camera back with
+// Camera, and a file that won't play. Each is read back from the keyed canvas. Serves the demo's build, or with --dev
+// its Vite server. Exits 1 if a step fails
 //   node test/demo.mjs [--dev]
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { HEIGHT, SQUARE, WIDTH, writeCamera } from './camera.mjs'
+import { BLUE, GREEN, HEIGHT, SQUARE, WIDTH, writeCamera } from './camera.mjs'
 import { launch } from './chrome.mjs'
+import { PICTURE, writePicture } from './picture.mjs'
 import { serve } from './serve.mjs'
 
 const folder = await mkdtemp(join(tmpdir(), 'greenscreen-camera-'))
 const camera = join(folder, 'camera.y4m')
 await writeCamera(camera)
+const pictureFile = join(folder, 'picture.png')
+await writePicture(pictureFile)
+const brokenFile = join(folder, 'broken.mp4')
+await writeFile(brokenFile, 'Not a video')
 
 let server
 if (process.argv.includes('--dev')) {
@@ -53,6 +59,54 @@ const READ = `(points) => {
 // A point in each region: the green half, the blue half, and the red square, and a point in the blue at the top that
 // the cut takes out once its top-left corner is dragged in
 const POINTS = { green: [100, 240], blue: [540, 100], red: [320, 240], cutOut: [340, 20] }
+// A point in each half of the picture opened as a file
+const PICTURE_POINTS = { blue: [50, 200], green: [150, 200] }
+
+// A video the page records and drops on itself as a file: its top half the camera's green, its bottom half the blue
+const CLIP = { width: 320, height: 240 }
+const CLIP_POINTS = { top: [160, 60], bottom: [160, 180] }
+// A page's first recorder can take seconds to write anything while other Chromes start, so it waits for the first of
+// the video to be written, as the page of checks does
+const DROP_CLIP = `(async () => {
+  const canvas = document.createElement('canvas')
+  canvas.width = ${CLIP.width}
+  canvas.height = ${CLIP.height}
+  const context = canvas.getContext('2d')
+  let frame = 0
+  const draw = () => {
+    context.fillStyle = 'rgb(${GREEN.join(',')})'
+    context.fillRect(0, 0, ${CLIP.width}, ${CLIP.height / 2})
+    context.fillStyle = 'rgb(${BLUE.join(',')})'
+    context.fillRect(0, ${CLIP.height / 2}, ${CLIP.width}, ${CLIP.height / 2})
+    frame = requestAnimationFrame(draw)
+  }
+  draw()
+  const stream = canvas.captureStream(30)
+  const type = ['video/webm;codecs=vp8', 'video/webm'].find((kind) => MediaRecorder.isTypeSupported(kind))
+  if (!type) return { error: 'no WebM recorder here' }
+  const recorder = new MediaRecorder(stream, { mimeType: type })
+  const chunks = []
+  const wrote = new Promise((resolve) => recorder.addEventListener('dataavailable', (event) => {
+    chunks.push(event.data)
+    if (event.data.size > 0) resolve(true)
+  }))
+  const stopped = new Promise((resolve) => recorder.addEventListener('stop', resolve, { once: true }))
+  recorder.start(100)
+  const written = await Promise.race([wrote, new Promise((resolve) => setTimeout(resolve, 10000, false))])
+  if (written) await new Promise((resolve) => setTimeout(resolve, 600))
+  recorder.stop()
+  await stopped
+  cancelAnimationFrame(frame)
+  for (const track of stream.getTracks()) track.stop()
+  if (!written) return { error: 'the recorder wrote nothing in 10 s' }
+  const data = new DataTransfer()
+  data.items.add(new File(chunks, 'clip.webm', { type: 'video/webm' }))
+  const over = new DragEvent('dragover', { dataTransfer: data, bubbles: true, cancelable: true })
+  document.body.dispatchEvent(over)
+  const drop = new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true })
+  document.body.dispatchEvent(drop)
+  return { taken: over.defaultPrevented && drop.defaultPrevented }
+})()`
 
 let failed = 0
 function expect(name, condition, detail) {
@@ -62,22 +116,26 @@ function expect(name, condition, detail) {
 
 try {
   const page = await browser.newPage(`${server.url}/`)
-  const read = async () => {
-    const names = Object.keys(POINTS)
-    const result = await page.evaluate(`(${READ})(${JSON.stringify(Object.values(POINTS))})`)
+  const read = async (points = POINTS) => {
+    const names = Object.keys(points)
+    const result = await page.evaluate(`(${READ})(${JSON.stringify(Object.values(points))})`)
     if (!result) return null
     return { ...result, at: Object.fromEntries(names.map((name, i) => [name, result.pixels[i]])) }
   }
-  const until = async (test, timeout = 5000) => {
+  // What get() gives, once test passes on it or the time is up
+  const poll = async (get, test, timeout = 5000) => {
     const started = Date.now()
     let last
     while (Date.now() - started < timeout) {
-      last = await read()
-      if (last && test(last.at)) return last
+      last = await get()
+      if (test(last)) return last
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
     return last
   }
+  // The keyed canvas at the points, once test passes on their pixels, and on the whole read for its size
+  const until = (test, points = POINTS, timeout = 5000) =>
+    poll(() => read(points), (result) => Boolean(result && test(result.at, result)), timeout)
   // Clicks a lil-gui control by its name
   const control = (name) =>
     page.evaluate(`(() => {
@@ -97,6 +155,22 @@ try {
     await page.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 })
   }
   const show = (pixel) => pixel?.join(',')
+  // Clicks one of the buttons over the preview by its name
+  const previewButton = (name) =>
+    page.evaluate(`(() => {
+      const button = [...document.querySelectorAll('.buttons button')].find((element) => element.textContent === ${JSON.stringify(name)})
+      button?.click()
+      return Boolean(button)
+    })()`)
+  // Opens a file with File, as choosing it in the browser's file chooser would. False if File or the chooser isn't there
+  const choose = async (path) => {
+    const opened = page.next('Page.fileChooserOpened')
+    if (!(await previewButton('File'))) return false
+    const chooser = await Promise.race([opened, new Promise((resolve) => setTimeout(resolve, 5000, null))])
+    if (!chooser) return false
+    await page.send('DOM.setFileInputFiles', { files: [path], backendNodeId: chooser.backendNodeId })
+    return true
+  }
 
   console.log('\n# demo')
   const first = await until((at) => at.green[3] === 0 && at.blue[3] === 255)
@@ -179,6 +253,98 @@ try {
   await control('Reset')
   const reset = await until((at) => at.green[3] === 0 && at.blue[3] === 255)
   expect('Reset puts it back', reset?.at.green[3] === 0 && reset?.at.blue[3] === 255, show(reset?.at.blue))
+
+  // File opens a picture in place of the camera, which is let go of. The picture is twice as tall as it's wide, so the
+  // small preview fits it in 160px of height, and the enlarged one is narrower than its buttons
+  await page.send('Page.setInterceptFileChooserDialog', { enabled: true })
+  await page.evaluate(`window.cameraStream = document.querySelector('.preview video')?.srcObject ?? null`)
+  expect('File opens the file chooser', await choose(pictureFile), '')
+  const opened = await until((at, { width }) => width === PICTURE.width && at.green[3] === 0, PICTURE_POINTS)
+  expect(
+    'and keys the picture chosen, at its own size',
+    opened?.width === PICTURE.width && opened?.height === PICTURE.height,
+    `${opened?.width}×${opened?.height}`,
+  )
+  expect('green keyed out of it', opened?.at.green[3] === 0, show(opened?.at.green))
+  expect('blue kept', opened?.at.blue[3] === 255 && opened.at.blue[2] > 180, show(opened?.at.blue))
+  const freed = await page.evaluate(`window.cameraStream?.getTracks().every((track) => track.readyState === 'ended') ?? false`)
+  expect('the camera is let go of', freed === true, '')
+  const fitted = await box('.preview .source')
+  expect(
+    'the small preview fits it in 160px of height',
+    fitted && Math.round(fitted.width) === 80 && Math.round(fitted.height) === 160,
+    fitted && `${Math.round(fitted.width)}×${Math.round(fitted.height)}`,
+  )
+
+  // Pick key, then a click on the picture's blue
+  await control('Pick key')
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  const tall = await box('.preview .source')
+  if (tall) {
+    const x = tall.x + tall.width * 0.25
+    const y = tall.y + tall.height * 0.5
+    await mouse('mousePressed', x, y)
+    await mouse('mouseReleased', x, y)
+  }
+  // Camera, File and Done, side by side and all on the page, though the preview is narrower than they are
+  const buttons = await page.evaluate(`[...document.querySelectorAll('.buttons button')].map((button) => {
+    const rect = button.getBoundingClientRect()
+    return { name: button.textContent, left: rect.left, right: rect.right, page: innerWidth }
+  })`)
+  const apart = buttons.every(
+    (button, i) => button.left >= 0 && button.right <= button.page && (i === 0 || button.left >= buttons[i - 1].right),
+  )
+  expect(
+    'its buttons are all on the page, apart',
+    buttons.length === 3 && apart,
+    `preview ${Math.round(tall?.width ?? 0)} wide: ` +
+      buttons.map((button) => `${button.name} ${Math.round(button.left)}..${Math.round(button.right)}`).join(', '),
+  )
+  const pickedBlue = await until((at) => at.blue[3] === 0, PICTURE_POINTS)
+  expect('picking the picture\'s blue keys it out', pickedBlue?.at.blue[3] === 0, show(pickedBlue?.at.blue))
+  expect('and keeps its green', pickedBlue?.at.green[3] === 255, show(pickedBlue?.at.green))
+  await page.evaluate(`document.querySelector('.done')?.click()`)
+  await control('Reset')
+
+  // A video file dropped on the page plays in place of the picture, on a loop
+  const dropped = await page.evaluate(DROP_CLIP, { timeout: 30_000 })
+  expect('a video dropped on the page is taken', dropped?.taken === true, dropped?.error ?? '')
+  const clip = await until(
+    (at, { width }) => width === CLIP.width && at.top[3] === 0 && at.bottom[3] === 255,
+    CLIP_POINTS,
+    10_000,
+  )
+  expect('and keyed at its own size', clip?.width === CLIP.width && clip?.height === CLIP.height, `${clip?.width}×${clip?.height}`)
+  expect('green keyed out of it', clip?.at.top[3] === 0, show(clip?.at.top))
+  expect('blue kept', clip?.at.bottom[3] === 255 && clip.at.bottom[2] > 180, show(clip?.at.bottom))
+  const looping = await page.evaluate(`(() => {
+    const video = document.querySelector('.preview video')
+    return Boolean(video && !video.paused && video.loop && video.src.startsWith('blob:'))
+  })()`)
+  expect('it plays on a loop', looping, '')
+
+  // Camera brings the camera back, and the video is let go of
+  await page.evaluate(`window.clip = document.querySelector('.preview video')`)
+  expect('Camera is there to press', await previewButton('Camera'), '')
+  const back = await until((at, { width }) => width === WIDTH && at.green[3] === 0 && at.blue[3] === 255)
+  expect(
+    'Camera brings the camera back',
+    back?.width === WIDTH && back?.height === HEIGHT && back.at.red[3] === 255,
+    `${back?.width}×${back?.height}`,
+  )
+  const unloaded = await page.evaluate(`Boolean(window.clip && !window.clip.isConnected && !window.clip.hasAttribute('src'))`)
+  expect('and lets the video go', unloaded, '')
+
+  // A file that won't play says so, and leaves the camera up
+  await choose(brokenFile)
+  const said = await poll(() => page.evaluate(`document.querySelector('.message')?.textContent ?? ''`), (text) => text !== '')
+  expect('a file that won\'t play says so', said.includes('broken.mp4'), said)
+  const kept = await read()
+  expect(
+    'and leaves the camera up',
+    kept?.width === WIDTH && kept.at.green[3] === 0 && kept.at.blue[3] === 255,
+    `${kept?.width}×${kept?.height}`,
+  )
 
   const problems = page.messages.filter((message) => /^\[(error|exception|warning)\]/.test(message))
   expect('no errors or warnings on the page', problems.length === 0, problems.join(' | '))

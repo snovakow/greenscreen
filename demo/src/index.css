@@ -17,31 +17,34 @@ body {
   inset: 0;
 }
 
-/* The camera's own picture, small in the bottom-right corner */
+/* The source's own picture, small in the bottom-right corner: 160px wide, or 160px tall where it's taller than it's
+   wide */
 .preview {
+  --small: min(160px, calc(160px * var(--aspect, 1)));
   position: fixed;
   right: 0;
   bottom: 0;
-  width: 160px;
+  width: var(--small);
 }
 
-.preview video {
+.source video,
+.source img {
   display: block;
   width: 100%;
 }
 
 /* Larger while a tool is up: up to 480px wide and no wider than the window, but no taller than fits below the panel
-   with room for Load and Done between them, and never smaller than it was */
+   with room for the buttons between them, and never smaller than it was */
 .preview.enlarged {
-  width: min(480px, 100vw, max(160px, calc((100vh - var(--panel-bottom, 0px) - 28px) * var(--aspect))));
+  width: min(480px, 100vw, max(var(--small), calc((100vh - var(--panel-bottom, 0px) - 28px) * var(--aspect))));
 }
 
 /* While the next click on the preview picks the key */
-.preview.picking video {
+.preview.picking .source {
   cursor: crosshair;
 }
 
-/* The cutout's outline and handles, over the camera's picture */
+/* The cutout's outline and handles, over the source's picture */
 .overlay {
   position: absolute;
   inset: 0;
@@ -55,23 +58,38 @@ body {
   pointer-events: none;
 }
 
-/* Asks for the camera again, over the corner of the preview */
-.load {
+/* Camera and File, over the corner of the preview */
+.buttons {
   position: absolute;
   right: 0;
   bottom: 0;
+  display: flex;
 }
 
-/* Above the preview's left corner while it's enlarged, clear of the handles and of the panel */
-.preview.enlarged .load {
-  right: auto;
+/* Above the preview while it's enlarged, clear of the handles and of the panel, with Done: Camera and File at its left
+   corner and Done at its right. A preview narrower than the buttons has them side by side, out to its left */
+.preview.enlarged .buttons {
   bottom: 100%;
-  left: 0;
+  min-width: 100%;
 }
 
-/* Puts the tool down, above the enlarged preview's right corner */
+/* Puts the tool down */
 .done {
-  position: absolute;
-  right: 0;
-  bottom: 100%;
+  margin-left: auto;
+}
+
+/* Why the camera or a file didn't open, in the bottom-left corner, until the next picture does */
+.message {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  margin: 0;
+  padding: 4px 8px;
+  font: 13px sans-serif;
+  color: white;
+  background-color: rgb(0 0 0 / 70%);
+}
+
+.message:empty {
+  display: none;
 }

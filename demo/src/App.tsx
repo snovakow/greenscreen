@@ -6,12 +6,12 @@ import { Panel } from './Panel.tsx'
 import type { PanelHandle } from './Panel.tsx'
 import { Preview } from './Preview.tsx'
 import type { Mode } from './Preview.tsx'
-import { useCamera } from './useCamera.ts'
+import { useSource } from './useSource.ts'
 
 const whole = () => DEFAULT_SETTINGS.corners.map((corner) => ({ x: corner.x, y: corner.y }))
 
-// The camera keyed, filling the window over black, with the panel to tune it and the camera's own picture in the
-// corner to work the tools on
+// The camera keyed, or an image or video opened from a file, filling the window over black, with the panel to tune it
+// and the source's own picture in the corner to work the tools on
 export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS)
   // The cut's corners, which the preview's handles move in place, and copy into the settings as they go
@@ -19,7 +19,7 @@ export default function App() {
   // The tool up on the preview, one at a time
   const [mode, setMode] = useState<Mode>('raw')
   const panel = useRef<PanelHandle>(null)
-  const { ref, video, size, load } = useCamera()
+  const { element, size, message, camera, open } = useSource()
 
   const change = useCallback((patch: Partial<Settings>) => setSettings((current) => ({ ...current, ...patch })), [])
   // Crop turned off puts the handles down, as there's no cut left to show
@@ -65,9 +65,30 @@ export default function App() {
     return () => window.removeEventListener('keydown', cancel, true)
   }, [mode])
 
+  // A file dropped anywhere on the page opens as File would. A drag that brings no files is left to the browser
+  useEffect(() => {
+    const over = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('Files')) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    }
+    const drop = (event: DragEvent) => {
+      const file = event.dataTransfer?.files[0]
+      if (!file) return
+      event.preventDefault()
+      open(file)
+    }
+    window.addEventListener('dragover', over)
+    window.addEventListener('drop', drop)
+    return () => {
+      window.removeEventListener('dragover', over)
+      window.removeEventListener('drop', drop)
+    }
+  }, [open])
+
   return (
     <>
-      <Greenscreen source={video} settings={settings} className="picture" />
+      <Greenscreen source={element} settings={settings} className="picture" />
       <Panel
         ref={panel}
         onChange={change}
@@ -78,7 +99,7 @@ export default function App() {
         onPickKey={togglePick}
       />
       <Preview
-        videoRef={ref}
+        source={element}
         size={size}
         mode={mode}
         crop={settings.crop}
@@ -86,8 +107,12 @@ export default function App() {
         onCorners={moveCorners}
         onPick={pick}
         onDone={done}
-        onLoad={load}
+        onCamera={camera}
+        onOpen={open}
       />
+      <p className="message" role="status">
+        {message}
+      </p>
     </>
   )
 }

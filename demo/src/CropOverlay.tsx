@@ -38,7 +38,7 @@ interface Drag {
   chosen: boolean
 }
 
-// The cut's outline over the camera's preview, and while editable, its handles: a knob at each corner to drag. Once
+// The cut's outline over the source's preview, and while editable, its handles: a knob at each corner to drag. Once
 // the cut is smaller than the picture, it drags whole from inside. A drag moves the corners in place and says so, for
 // the keyer to take them
 export function CropOverlay({ corners, editable, onChange }: CropOverlayProps) {

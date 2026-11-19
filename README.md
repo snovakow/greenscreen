@@ -189,7 +189,7 @@ Every WebGPU keyer on a page shares one device. A WebGL2 keyer has a context of 
 
 ## Demo and checks
 
-[demo](demo) is the single-camera greenscreen app this package grew out of. It's rebuilt on the React entry, with a lil-gui panel, a preview to pick the key from, and handles to drag the cut's corners. `demo/check` is a page of checks. It keys a test picture with every part of the library the browser can run, on WebGL2 and on WebGPU, and compares each pixel with the keyer worked out on the CPU. Open it in any browser to see whether the library works there.
+[demo](demo) is the greenscreen app this package grew out of, rebuilt on the React entry. It keys the camera, or an image or video you open with File or drop on the page, which stays in your browser. It has a lil-gui panel, a preview to pick the key from, and handles to drag the cut's corners. `demo/check` is a page of checks. It keys a test picture with every part of the library the browser can run, on WebGL2 and on WebGPU, and compares each pixel with the keyer worked out on the CPU. Open it in any browser to see whether the library works there.
 
 To work on the library, you need [Node.js](https://nodejs.org) 22.12 or later. In a clone:
 
