@@ -294,7 +294,6 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
 
   await check(report, group, 'Keys a recorded video in the colours a 2D canvas reads', async () => {
     const video = await recordedVideo(source)
-    if (!video) throw new Skip('nothing can record video here')
     const keyer = await make(video)
     try {
       await until(() => keyer.render(), 1000)

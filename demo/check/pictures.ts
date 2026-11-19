@@ -1,3 +1,5 @@
+import { Skip } from './harness.ts'
+
 // The picture every check keys: blocks of flat colour, each BLOCK pixels square, from the key itself through screen
 // colours as a camera sees them to colours that must be kept, and a few see-through ones
 export const BLOCK = 16
@@ -134,30 +136,59 @@ export async function toVideo(canvas: HTMLCanvasElement): Promise<{ video: HTMLV
   }
 }
 
+// How long a recorder may take to write the first of its video, in ms, how much more it then records, and how often
+// it hands over what it has written. Chrome holds the frames a page's first recorder is given until its GPU process
+// has said which encoders the machine has. That takes a few milliseconds on a quiet machine, and has taken over five
+// seconds with several Chromes starting at once, when a recording stopped on a timer held a header and no frames
+const FIRST_WRITE = 10_000
+const RECORDED = 600
+const SLICE = 100
+
 // The canvas recorded as a video file, which plays, paused on a frame. A browser codes what it records as BT.601, as
-// cameras often are too, which a 2D canvas, WebGL and WebGPU's own copy don't all read the same. Null where nothing
-// can be recorded
-export async function recordedVideo(canvas: HTMLCanvasElement): Promise<HTMLVideoElement | null> {
-  if (typeof MediaRecorder === 'undefined') return null
+// cameras often are too, which a 2D canvas, WebGL and WebGPU's own copy don't all read the same. Throws Skip where no
+// recording can be made that plays
+export async function recordedVideo(canvas: HTMLCanvasElement): Promise<HTMLVideoElement> {
+  if (typeof MediaRecorder === 'undefined') throw new Skip('there is no MediaRecorder here')
   const type = ['video/webm;codecs=vp8', 'video/webm', 'video/mp4'].find((kind) => MediaRecorder.isTypeSupported(kind))
-  if (!type) return null
+  if (!type) throw new Skip('MediaRecorder records neither WebM nor MP4 here')
   const { video: live, stop } = await toVideo(canvas)
-  const stream = live.srcObject
-  if (!(stream instanceof MediaStream)) throw new Error('No stream')
-  const recorder = new MediaRecorder(stream, { mimeType: type })
   const chunks: Blob[] = []
-  recorder.addEventListener('dataavailable', (event) => chunks.push(event.data))
-  const stopped = new Promise((resolve) => recorder.addEventListener('stop', resolve, { once: true }))
-  recorder.start()
-  await new Promise((resolve) => setTimeout(resolve, 600))
-  recorder.stop()
-  await stopped
-  stop()
+  try {
+    const stream = live.srcObject
+    if (!(stream instanceof MediaStream)) throw new Error('No stream')
+    const recorder = new MediaRecorder(stream, { mimeType: type })
+    // Recorded in slices, so that the first of them says the recorder has begun to write
+    const wrote = new Promise<boolean>((resolve) => {
+      recorder.addEventListener('dataavailable', (event) => {
+        chunks.push(event.data)
+        if (event.data.size > 0) resolve(true)
+      })
+    })
+    const stopped = new Promise((resolve) => recorder.addEventListener('stop', resolve, { once: true }))
+    recorder.start(SLICE)
+    let timer = 0
+    const late = new Promise<boolean>((resolve) => {
+      timer = window.setTimeout(resolve, FIRST_WRITE, false)
+    })
+    const written = await Promise.race([wrote, late])
+    clearTimeout(timer)
+    if (written) await new Promise((resolve) => setTimeout(resolve, RECORDED))
+    recorder.stop()
+    await stopped
+    if (!written) throw new Skip(`MediaRecorder wrote nothing in ${FIRST_WRITE / 1000} seconds`)
+  } finally {
+    stop()
+  }
   const video = document.createElement('video')
   video.muted = true
   video.playsInline = true
   video.src = URL.createObjectURL(new Blob(chunks, { type }))
-  await video.play()
+  try {
+    await video.play()
+  } catch (error) {
+    URL.revokeObjectURL(video.src)
+    throw new Skip(`the ${type} MediaRecorder made would not play: ${error instanceof Error ? error.message : String(error)}`)
+  }
   await new Promise((resolve) => video.requestVideoFrameCallback(resolve))
   video.pause()
   return video
