@@ -19,6 +19,10 @@ const PASSES = [
 
 const FLAGS = ['--enable-unsafe-webgpu', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required']
 
+// The checks run as the page opens, and window.greenscreenChecks resolves once they're done: in 30 to 45 s on a quiet
+// machine, and in longer with other Chromes running, as other test runs start them. So it has longer than a command
+const RUN_TIMEOUT = 180_000
+
 let server
 if (args.includes('--dev')) {
   const { createServer } = await import('vite')
@@ -41,7 +45,7 @@ try {
     const browser = await launch({ flags: [...FLAGS, ...pass.flags] })
     try {
       const page = await browser.newPage(`${server.url}/check/`)
-      const results = await page.evaluate('window.greenscreenChecks')
+      const results = await page.evaluate('window.greenscreenChecks', { timeout: RUN_TIMEOUT })
       console.log(`\n# ${pass.name}`)
       for (const [name, value] of Object.entries(results.environment)) console.log(`  ${name}: ${value}`)
       for (const outcome of results.outcomes) {

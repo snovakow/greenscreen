@@ -24,6 +24,8 @@ const BASE_FLAGS = [
   '--window-size=1024,768',
 ]
 
+// How long a command may take, in ms. Most are answered at once; an evaluate() awaiting a page's promise can be given
+// longer
 const TIMEOUT = 60_000
 
 export async function launch({ flags = [], headless = true } = {}) {
@@ -67,15 +69,15 @@ class Connection {
     for (const handler of this.#handlers) handler(message)
   }
 
-  send(method, params = {}, sessionId) {
+  send(method, params = {}, sessionId, timeout = TIMEOUT) {
     const id = ++this.#id
     const message = { id, method, params }
     if (sessionId) message.sessionId = sessionId
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.#pending.delete(id)
-        reject(new Error(`${method} timed out`))
-      }, TIMEOUT)
+        reject(new Error(`${method} timed out after ${timeout / 1000} s`))
+      }, timeout)
       this.#pending.set(id, { resolve, reject, method, timer })
       this.#write.write(`${JSON.stringify(message)}\0`)
     })
@@ -160,8 +162,8 @@ class Page {
     })
   }
 
-  send(method, params) {
-    return this.#connection.send(method, params, this.#sessionId)
+  send(method, params, timeout) {
+    return this.#connection.send(method, params, this.#sessionId, timeout)
   }
 
   // Resolves with the next event of that name on this page
@@ -182,14 +184,14 @@ class Page {
     await loaded
   }
 
-  // The value of the expression, awaited if it's a promise, as JSON
-  async evaluate(expression) {
-    const { result, exceptionDetails } = await this.send('Runtime.evaluate', {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-      userGesture: true,
-    })
+  // The value of the expression, awaited if it's a promise, as JSON. A promise that may take a while can be given a
+  // timeout of its own, in ms
+  async evaluate(expression, { timeout } = {}) {
+    const { result, exceptionDetails } = await this.send(
+      'Runtime.evaluate',
+      { expression, awaitPromise: true, returnByValue: true, userGesture: true },
+      timeout,
+    )
     if (exceptionDetails) throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text)
     return result.value
   }
