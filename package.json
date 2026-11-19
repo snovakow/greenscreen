@@ -1,21 +1,86 @@
 {
-  "name": "greenscreen",
-  "private": true,
+  "name": "@snovakow/greenscreen",
   "version": "0.2.1",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "oxlint",
-    "preview": "vite preview",
-    "typecheck": "tsc -b",
-    "lint:fix": "oxlint --fix"
+  "description": "A chroma keyer for the browser, on WebGPU or WebGL2: a video, image or canvas in, the keyed picture out. For plain JavaScript, TypeScript, React and three.js.",
+  "keywords": [
+    "chroma key",
+    "chroma-key",
+    "green screen",
+    "greenscreen",
+    "keyer",
+    "webgpu",
+    "webgl",
+    "webgl2",
+    "react",
+    "three.js",
+    "video",
+    "camera"
+  ],
+  "license": "MIT",
+  "author": "snovakow",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snovakow/greenscreen.git"
   },
-  "dependencies": {
-    "@react-three/fiber": "^9.8.2",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1",
-    "three": "^0.187.0"
+  "homepage": "https://github.com/snovakow/greenscreen#readme",
+  "bugs": {
+    "url": "https://github.com/snovakow/greenscreen/issues"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "default": "./dist/react.js"
+    },
+    "./three": {
+      "types": "./dist/three.d.ts",
+      "default": "./dist/three.js"
+    },
+    "./three/webgpu": {
+      "types": "./dist/three-webgpu.d.ts",
+      "default": "./dist/three-webgpu.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/greenscreen.global.js",
+  "jsdelivr": "./dist/greenscreen.global.js",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "dev": "vite --config demo/vite.config.ts",
+    "build": "npm run build:lib && npm run build:demo",
+    "build:lib": "node scripts/build-lib.mjs",
+    "build:demo": "vite build --config demo/vite.config.ts",
+    "preview": "vite preview --config demo/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.lib.json --noEmit && tsc -b",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "test": "npm run build:demo && node test/run.mjs && node test/demo.mjs",
+    "test:examples": "node scripts/examples.mjs",
+    "probe": "node test/probe.mjs",
+    "prepack": "npm run build:lib"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "three": ">=0.170"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "three": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
@@ -23,9 +88,16 @@
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^6.3.0",
+    "lil-gui": "^0.21.0",
     "oxlint": "^1.94.0",
     "oxlint-tsgolint": "^7.0.2007",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

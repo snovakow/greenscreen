@@ -1,0 +1,8 @@
+{
+  // The same code resolved as Node resolves ES modules, which reads the package's exports most strictly
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "node16",
+    "moduleResolution": "node16"
+  }
+}

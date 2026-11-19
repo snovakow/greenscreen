@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Greenscreen from a script tag</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+        background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0 / 16px 16px;
+      }
+      canvas {
+        width: 320px;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Greenscreen from a script tag</h1>
+    <p>A classic script, which sets <code>window.Greenscreen</code>, with its constants on it.</p>
+    <script src="./node_modules/@snovakow/greenscreen/dist/greenscreen.global.js"></script>
+    <script>
+      const picture = document.createElement('canvas')
+      picture.width = 160
+      picture.height = 120
+      const context = picture.getContext('2d')
+      context.fillStyle = 'rgb(40 190 60)'
+      context.fillRect(0, 0, 160, 120)
+      context.fillStyle = 'rgb(220 30 30)'
+      context.fillRect(60, 40, 40, 40)
+
+      const keyer = new Greenscreen(picture, {
+        settings: { keyColor: Greenscreen.KEY_COLORS.green, similarity: Greenscreen.DEFAULT_SETTINGS.similarity },
+      })
+      keyer.canvas.id = 'keyed'
+      document.body.append(keyer.canvas)
+      keyer.start()
+    </script>
+  </body>
+</html>

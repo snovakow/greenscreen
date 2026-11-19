@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "typescript", "oxc"],
-  "ignorePatterns": [".claude/**"],
+  "ignorePatterns": [".claude/**", "dist/**", "demo/dist/**", "examples/*/node_modules/**", "examples/*/dist/**"],
   "categories": {
     "correctness": "error",
     "suspicious": "warn"

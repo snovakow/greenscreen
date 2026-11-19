@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# npm pack's tarball, which test:examples makes and installs
+*.tgz
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

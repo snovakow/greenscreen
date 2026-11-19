@@ -14,7 +14,9 @@ interface PreviewProps {
   mode: Mode
   // Whether the cutout cuts the picture, for its outline to show on the preview
   crop: boolean
+  // The cut's corners, which the handles move in place, saying so with onCorners
   corners: Point[]
+  onCorners: () => void
   // While picking, a click on the preview reads the camera's colour there for onPick
   onPick: (hex: number) => void
   // Done puts the tool down
@@ -26,7 +28,7 @@ interface PreviewProps {
 // grows: the handles go over it to drag the cutout, or a click on it picks the key. The tools are used here, on the
 // camera's picture, while the main picture shows what they come to. The video element stays the same element
 // throughout, so the stream playing in it plays on
-export function Preview({ videoRef, size, mode, crop, corners, onPick, onDone, onLoad }: PreviewProps) {
+export function Preview({ videoRef, size, mode, crop, corners, onCorners, onPick, onDone, onLoad }: PreviewProps) {
   // No tool until there's a picture to use it on
   const tool = size ? mode : 'raw'
   // The video's shape, for the stylesheet to keep the grown preview under a height
@@ -49,7 +51,9 @@ export function Preview({ videoRef, size, mode, crop, corners, onPick, onDone, o
   return (
     <div className={className} style={style}>
       <video ref={videoRef} autoPlay muted playsInline onClick={tool === 'pick' ? pick : undefined} />
-      {size && (crop || tool === 'crop') && <CropOverlay corners={corners} editable={tool === 'crop'} />}
+      {size && (crop || tool === 'crop') && (
+        <CropOverlay corners={corners} editable={tool === 'crop'} onChange={onCorners} />
+      )}
       {tool !== 'raw' && (
         <button type="button" className="done" onClick={onDone}>
           Done

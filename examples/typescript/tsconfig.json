@@ -1,0 +1,15 @@
+{
+  // An app's settings, as a bundler would build it, checking the package's declarations as well as this code
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": false,
+    "types": []
+  },
+  "include": ["src"]
+}

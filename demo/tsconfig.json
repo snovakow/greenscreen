@@ -1,0 +1,34 @@
+{
+  // The demo app and the page of checks. They import the library by its published names, which point at its sources
+  // here, as demo/vite.config.ts points them for the build
+  "compilerOptions": {
+    "tsBuildInfoFile": "../node_modules/.tmp/tsconfig.demo.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@snovakow/greenscreen": ["../src/index.ts"],
+      "@snovakow/greenscreen/react": ["../src/react.tsx"],
+      "@snovakow/greenscreen/three": ["../src/three.ts"],
+      "@snovakow/greenscreen/three/webgpu": ["../src/three-webgpu.ts"]
+    },
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src", "check", "../src/global.ts"]
+}

@@ -1,4 +1,4 @@
-import { MathUtils } from 'three'
+import { clamp } from './crop.ts'
 
 // The patch of the frame a pick averages, in pixels each way
 const PATCH = 5
@@ -16,8 +16,8 @@ export function sampleKey(video: HTMLVideoElement, u: number, v: number): number
 
   const w = Math.min(PATCH, width)
   const h = Math.min(PATCH, height)
-  const x = MathUtils.clamp(Math.floor(u * width) - Math.floor(w / 2), 0, width - w)
-  const y = MathUtils.clamp(Math.floor(v * height) - Math.floor(h / 2), 0, height - h)
+  const x = clamp(Math.floor(u * width) - Math.floor(w / 2), 0, width - w)
+  const y = clamp(Math.floor(v * height) - Math.floor(h / 2), 0, height - h)
 
   if (!context) {
     const canvas = document.createElement('canvas')

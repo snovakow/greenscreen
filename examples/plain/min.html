@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Greenscreen from one file</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+        background: repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0 / 16px 16px;
+      }
+      canvas {
+        width: 320px;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Greenscreen from one file</h1>
+    <p>The whole core as one minified ES module, imported by its path.</p>
+    <script type="module">
+      import { Greenscreen } from './node_modules/@snovakow/greenscreen/dist/greenscreen.min.js'
+
+      const picture = document.createElement('canvas')
+      picture.width = 160
+      picture.height = 120
+      const context = picture.getContext('2d')
+      context.fillStyle = 'rgb(40 190 60)'
+      context.fillRect(0, 0, 160, 120)
+      context.fillStyle = 'rgb(220 30 30)'
+      context.fillRect(60, 40, 40, 40)
+
+      const keyer = new Greenscreen(picture)
+      keyer.canvas.id = 'keyed'
+      document.body.append(keyer.canvas)
+      keyer.start()
+    </script>
+  </body>
+</html>

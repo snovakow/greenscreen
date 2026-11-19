@@ -1,4 +1,6 @@
-import { MathUtils } from 'three'
+export function clamp(x: number, low: number, high: number) {
+  return Math.min(Math.max(x, low), high)
+}
 
 // The cutout's corners: four points in the video's coordinates, 0 to 1 across and down the picture, clockwise from the
 // top left. The preview's handles move them with these, which keep them inside the picture and keep the shape they make
@@ -44,8 +46,8 @@ export function together(points: readonly Point[], i: number) {
 // its middle, the whole cutout, unless it spans the picture and has nowhere to go. Otherwise the nearest corner within
 // radius, or the first of corners dragged together
 export function hitTest(points: readonly Point[], x: number, y: number, width: number, height: number, radius: number) {
-  x = MathUtils.clamp(x, 0, width)
-  y = MathUtils.clamp(y, 0, height)
+  x = clamp(x, 0, width)
+  y = clamp(y, 0, height)
 
   const xs = points.map((point) => point.x)
   const ys = points.map((point) => point.y)
@@ -80,11 +82,11 @@ export function hitTest(points: readonly Point[], x: number, y: number, width: n
 export function moveQuad(points: Point[], start: readonly Point[], dx: number, dy: number) {
   const xs = start.map((point) => point.x)
   const ys = start.map((point) => point.y)
-  dx = MathUtils.clamp(dx, -Math.min(...xs), 1 - Math.max(...xs))
-  dy = MathUtils.clamp(dy, -Math.min(...ys), 1 - Math.max(...ys))
+  dx = clamp(dx, -Math.min(...xs), 1 - Math.max(...xs))
+  dy = clamp(dy, -Math.min(...ys), 1 - Math.max(...ys))
   points.forEach((point, i) => {
-    point.x = MathUtils.clamp(start[i].x + dx, 0, 1)
-    point.y = MathUtils.clamp(start[i].y + dy, 0, 1)
+    point.x = clamp(start[i].x + dx, 0, 1)
+    point.y = clamp(start[i].y + dy, 0, 1)
   })
 }
 
@@ -101,7 +103,7 @@ export function moveCorner(points: Point[], i: number, x: number, y: number) {
   const previous = points[(i + 3) % 4]
   const was = { x: corner.x, y: corner.y }
 
-  let point = { x: MathUtils.clamp(x, 0, 1), y: MathUtils.clamp(y, 0, 1) }
+  let point = { x: clamp(x, 0, 1), y: clamp(y, 0, 1) }
 
   if (side(point.x, point.y, previous, next) < 0) {
     const dx = next.x - previous.x
@@ -125,8 +127,8 @@ export function moveCorner(points: Point[], i: number, x: number, y: number) {
     }
   }
 
-  corner.x = MathUtils.clamp(point.x, 0, 1)
-  corner.y = MathUtils.clamp(point.y, 0, 1)
+  corner.x = clamp(point.x, 0, 1)
+  corner.y = clamp(point.y, 0, 1)
   if (!drawable(points)) {
     corner.x = was.x
     corner.y = was.y

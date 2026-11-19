@@ -11,6 +11,12 @@ body {
   background-color: black;
 }
 
+/* The keyed picture, as large as fits the window, over black */
+.picture {
+  position: fixed;
+  inset: 0;
+}
+
 /* The camera's own picture, small in the bottom-right corner */
 .preview {
   position: fixed;
