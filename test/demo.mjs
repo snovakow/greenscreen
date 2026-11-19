@@ -146,6 +146,27 @@ try {
       target.click()
       return true
     })()`)
+  // The number a lil-gui control shows, by its name
+  const numberIn = async (name) =>
+    Number(
+      await page.evaluate(`(() => {
+        const controller = [...document.querySelectorAll('.lil-gui .lil-controller')]
+          .find((element) => element.querySelector('.lil-name')?.textContent === ${JSON.stringify(name)})
+        return controller?.querySelector('input')?.value ?? null
+      })()`),
+    )
+  // Types a value into a lil-gui control, or chooses it from its list, by the control's name
+  const enter = (name, value) =>
+    page.evaluate(`(() => {
+      const controller = [...document.querySelectorAll('.lil-gui .lil-controller')]
+        .find((element) => element.querySelector('.lil-name')?.textContent === ${JSON.stringify(name)})
+      const field = controller?.querySelector('input, select')
+      if (!field) return false
+      field.value = ${JSON.stringify(String(value))}
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+      field.dispatchEvent(new Event('change', { bubbles: true }))
+      return true
+    })()`)
   const box = (selector) =>
     page.evaluate(`(() => {
       const rect = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect()
@@ -207,7 +228,13 @@ try {
   const picked = await until((at) => at.blue[3] === 0)
   expect('picking blue keys blue out', picked?.at.blue[3] === 0, show(picked?.at.blue))
   expect('and keeps green', picked?.at.green[3] === 255, show(picked?.at.green))
+  const lowered = await numberIn('Similarity')
+  expect('and lowers similarity to suit a picked key', lowered === 0.5, String(lowered))
   await page.evaluate(`document.querySelector('.done')?.click()`)
+  // Back to a preset, the default similarity, which the presets are set for
+  await enter('Key color type', 'Green')
+  const preset = await numberIn('Similarity')
+  expect('a preset chosen again puts it back', preset === 0.75, String(preset))
 
   // Edit crop, and the top-left corner dragged to the middle of the picture's top-left quarter
   await control('Reset')
@@ -276,7 +303,8 @@ try {
     fitted && `${Math.round(fitted.width)}×${Math.round(fitted.height)}`,
   )
 
-  // Pick key, then a click on the picture's blue
+  // Pick key, then a click on the picture's blue, with similarity set by hand first, which the pick leaves
+  await enter('Similarity', 0.3)
   await control('Pick key')
   await new Promise((resolve) => setTimeout(resolve, 300))
   const tall = await box('.preview .source')
@@ -303,8 +331,12 @@ try {
   const pickedBlue = await until((at) => at.blue[3] === 0, PICTURE_POINTS)
   expect('picking the picture\'s blue keys it out', pickedBlue?.at.blue[3] === 0, show(pickedBlue?.at.blue))
   expect('and keeps its green', pickedBlue?.at.green[3] === 255, show(pickedBlue?.at.green))
+  const byHand = await numberIn('Similarity')
+  expect('and leaves a similarity set by hand', byHand === 0.3, String(byHand))
   await page.evaluate(`document.querySelector('.done')?.click()`)
   await control('Reset')
+  const restored = await numberIn('Similarity')
+  expect('Reset puts the default similarity back', restored === 0.75, String(restored))
 
   // A video file dropped on the page plays in place of the picture, on a loop
   const dropped = await page.evaluate(DROP_CLIP, { timeout: 30_000 })

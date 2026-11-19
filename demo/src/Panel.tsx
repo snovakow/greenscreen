@@ -12,6 +12,11 @@ const EDITING = 'Drag the corners…'
 const PICK_KEY = 'Pick key'
 const PICKING = 'Click the preview…'
 
+// The similarity a picked key starts with. The default is set for a preset and a screen as a camera sees it, which is
+// far from the preset's pure colour. A key picked from the screen is near the screen's own colours, so it needs less
+// reach, and at the default it takes out colours of the subject's that are near the screen's
+const PICKED_SIMILARITY = 0.5
+
 type KeyType = keyof typeof KEY_COLORS | 'custom'
 
 // What the panel's controls edit: the library's settings, with the key chosen from presets or as a colour of its own
@@ -62,10 +67,12 @@ interface PanelControls {
   keyType: Controller
   keyColor: Controller
   pickKey: Controller
+  similarity: Controller
 }
 
 export interface PanelHandle {
-  // Makes hex the key and turns the key on, as choosing Custom and that colour in the panel would
+  // Makes hex the key and turns the key on, as choosing Custom and that colour in the panel would. A similarity still at
+  // the default goes down to suit a picked key
   setKey: (hex: number) => void
   // Turns Crop on or off, as its checkbox would
   setCrop: (on: boolean) => void
@@ -115,10 +122,14 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
       .name('Key color type')
     const keyColor = gui.addColor(values, 'keyColor').name('Key color')
     keyColor.show(values.keyType === 'custom')
-    keyType.onChange((type: KeyType) => keyColor.show(type === 'custom'))
     const pickKey = gui.add({ pickKey: onPickKey }, 'pickKey').name(PICK_KEY)
 
-    number('similarity', 'Similarity')
+    const similarity = number('similarity', 'Similarity')
+    // Back to a preset, a similarity still at a picked key's goes back to the default, which the presets are set for
+    keyType.onChange((type: KeyType) => {
+      keyColor.show(type === 'custom')
+      if (type !== 'custom' && values.similarity === PICKED_SIMILARITY) similarity.setValue(DEFAULT_SETTINGS.similarity)
+    })
     number('smoothness', 'Smoothness')
     number('spill', 'Spill')
     number('saturation', 'Saturation')
@@ -141,7 +152,7 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
     })
     observer.observe(gui.domElement)
 
-    controls.current = { key, crop, editCrop, keyType, keyColor, pickKey }
+    controls.current = { key, crop, editCrop, keyType, keyColor, pickKey, similarity }
     return () => {
       controls.current = null
       observer.disconnect()
@@ -165,12 +176,13 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
         controls.current?.keyType.setValue('custom')
         controls.current?.keyColor.setValue(hex)
         controls.current?.key.setValue(true)
+        if (values.similarity === DEFAULT_SETTINGS.similarity) controls.current?.similarity.setValue(PICKED_SIMILARITY)
       },
       setCrop(on: boolean) {
         controls.current?.crop.setValue(on)
       },
     }),
-    [],
+    [values],
   )
 
   return null
