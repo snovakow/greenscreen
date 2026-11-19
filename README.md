@@ -125,7 +125,7 @@ The texture may be in sRGB or have no colour space; it's keyed on its sRGB value
 | `keyColor` | `0xrrggbb` | `0x00ff00` | The colour taken out. One picked from the screen as it's lit keys better than a preset. |
 | `similarity` | 0 to 1 | 0.75 | How near the key a colour must be to be taken out. It's a fraction of the key's own distance from grey: 0 takes out only the key, and 1 reaches grey. |
 | `smoothness` | 0 to 1 | 0.1 | How far past `similarity` a colour fades back in. |
-| `spill` | 0 to 1 | 0.2 | How far past `similarity` the key's tint is taken out of what's kept, which takes a green cast off edges and hair. |
+| `spill` | 0 to 1 | 0.8 | How far past `similarity` the key's tint is taken out of what's kept, which takes a green cast off edges and hair. It's a share of the way from `similarity` to grey: 0 takes none out, and 1 reaches grey. |
 | `flip` | boolean | `false` | Mirrors the picture left to right. |
 | `crop` | boolean | `false` | Cuts the picture down to the shape `corners` make. |
 | `corners` | four `{ x, y }` | the whole picture | Clockwise from the top left. They're in the picture's coordinates, 0 to 1 with y down, and not mirrored by `flip`. The shape must be convex. |
@@ -137,6 +137,10 @@ The texture may be in sRGB or have no colour space; it's keyed on its sRGB value
 | `gamma` | −1 to 1 | 0 | An exponent from 2 to ½. |
 
 The default similarity is set for a preset key and a screen as a camera sees it, which is duller than the preset's pure colour and darker toward its edges. It also takes out pale green against green, and partly takes out other colours near the key, such as teal, cyan and olive. A key picked from the screen is much nearer the screen's own colours, so with one, a similarity of about 0.5 is enough and keeps teal, cyan and olive.
+
+`spill` follows `similarity`: at its default of 0.8, it reaches 0.2 past a similarity of 0.75, and 0.4 past 0.5.
+
+Before 0.4.0, `spill` was a distance past `similarity`. To key as before, set `spill` to the old value divided by 1 − `similarity`.
 
 `DEFAULT_SETTINGS` holds the defaults, `RANGES` the limits and a slider step for each number, and `KEY_COLORS` the presets `green`, `blue` and `magenta`.
 

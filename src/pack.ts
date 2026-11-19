@@ -3,7 +3,7 @@ import type { Settings } from './settings.ts'
 // The settings as the shaders read them: eight sets of four numbers, a vec4 array in GLSL and a struct of vec4s in
 // WGSL. Every shader works from these, so none of them can come to mean a setting differently
 //   0  key: its Pb and Pr, 1 / its distance from grey, on
-//   1  matte: similarity, smoothness, spill, opacity
+//   1  matte: similarity, smoothness, spill's reach past similarity, opacity
 //   2  colour: tint's r, g and b, saturation
 //   3  tone: gamma's exponent, contrast's factor, brightness, crop on
 //   4  flags: flip, texture's rows bottom up, output linear, texture linear. The last three are the renderer's own
@@ -29,7 +29,8 @@ export function pack<T extends Float32Array>(settings: Readonly<Settings>, out: 
 
   out[4] = settings.similarity
   out[5] = settings.smoothness
-  out[6] = settings.spill
+  // Spill is a share of the way from similarity to grey, so it reaches further as similarity comes down
+  out[6] = settings.spill * Math.max(1 - settings.similarity, 0)
   out[7] = settings.opacity
 
   const tint = channels(settings.tint)

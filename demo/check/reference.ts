@@ -91,6 +91,8 @@ export function reference(picture: Picture, settings: Settings, filter: Filter =
     return distance(sum[0], sum[1], sum[2])
   }
 
+  // Spill is documented as a share of the way from similarity to grey, at a distance of 1
+  const spillReach = settings.spill * (1 - settings.similarity)
   const [tintR, tintG, tintB] = channels(settings.tint)
   const exponent = 2 ** -settings.gamma
   const factor = 4 ** settings.contrast
@@ -109,7 +111,7 @@ export function reference(picture: Picture, settings: Settings, filter: Filter =
         const near = block(x - 1, j - 1) + block(x, j) + block(x, j - 1) + block(x - 1, j)
         const beyond = 0.5 * distance(r, g, b) + 0.125 * near - settings.similarity
         alpha *= ramp(beyond, settings.smoothness)
-        const amount = 1 - ramp(beyond, settings.spill)
+        const amount = 1 - ramp(beyond, spillReach)
         if (amount > 0) {
           const dx = keyPb * inverse
           const dy = keyPr * inverse

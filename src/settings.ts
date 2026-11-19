@@ -16,8 +16,9 @@ export interface Settings {
   similarity: number
   // How far past similarity a colour fades back in, 0 to 1, in the same units
   smoothness: number
-  // How far past similarity the key's own tint is taken out of what's kept, 0 to 1, in the same units. It takes the
-  // key's cast off edges and hair
+  // How far past similarity the key's own tint is taken out of what's kept, as a share of the way from similarity to
+  // grey: 0 takes none out, and 1 reaches grey. It's taken out wholly at similarity, and less and less beyond it. It
+  // takes the key's cast off edges and hair
   spill: number
   // Mirrors the picture left to right
   flip: boolean
@@ -77,13 +78,14 @@ const WHOLE: readonly Readonly<Point>[] = Object.freeze([
 // Green keyed out of the picture as it comes, uncut and unchanged otherwise. The similarity is set for a preset key
 // and a screen as a camera sees it: duller than the preset's pure colour, and darker still toward its edges, where the
 // light falls off. A key picked from the screen is much nearer the screen's own colours, and keys it at about 0.5,
-// which keeps more of the colours near the key
+// which keeps more of the colours near the key. Spill is a share of the way from similarity to grey, so it follows a
+// similarity changed
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   key: true,
   keyColor: KEY_COLORS.green,
   similarity: 0.75,
   smoothness: 0.1,
-  spill: 0.2,
+  spill: 0.8,
   flip: false,
   crop: false,
   corners: WHOLE,

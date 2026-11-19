@@ -52,7 +52,7 @@ export function randomSettings(next: () => number): Partial<Settings> {
     keyColor: keys[Math.floor(next() * keys.length)],
     similarity: 0.15 + next() * 0.6,
     smoothness: 0.02 + next() * 0.3,
-    spill: next() * 0.5,
+    spill: next(),
     flip: next() < 0.5,
     crop: next() < 0.5,
     corners: randomQuad(next),
@@ -326,8 +326,9 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
 
   await check(report, group, 'Keys a recorded video in the colours a 2D canvas reads', async () => {
     // At this similarity, each of the picture's colours is either taken out or kept whole. In the fade between them, a
-    // level's difference in how the video is read moves alpha by many levels, and this check is of the colours read
-    const settings = { similarity: 0.5 }
+    // level's difference in how the video is read moves alpha by many levels, and this check is of the colours read.
+    // Spill reaches 0.2 past similarity
+    const settings = { similarity: 0.5, spill: 0.4 }
     const video = await recordedVideo(source)
     const keyer = await make(video)
     try {
