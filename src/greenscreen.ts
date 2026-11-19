@@ -2,7 +2,7 @@ import { pack, PACKED_LENGTH } from './pack.ts'
 import type { Renderer, RendererEvents } from './renderer.ts'
 import { DEFAULT_SETTINGS, mergeSettings } from './settings.ts'
 import type { Settings } from './settings.ts'
-import { Feed } from './source.ts'
+import { Feed, warnUnkeyable } from './source.ts'
 import type { BackendName, Canvas, Source } from './types.ts'
 import { WebGLRenderer } from './webgl.ts'
 import {
@@ -30,6 +30,10 @@ export interface GreenscreenOptions<C extends Canvas = HTMLCanvasElement> {
   onLost?: () => void
   // It's back. The next render draws again
   onRestored?: () => void
+  // The source's picture can't be keyed: it's larger than the GPU's textures, or from another site without CORS. Called
+  // once for each picture that fails, with what was thrown, and the canvas is left see-through until a picture can be
+  // keyed. Without it, the keyer warns in the console
+  onError?: (error: unknown) => void
 }
 
 // The time between a keyer's own frames, where there are no animation frames to draw on
@@ -58,6 +62,7 @@ export class Greenscreen<C extends Canvas = HTMLCanvasElement> {
   #disposed = false
   readonly #onLost?: () => void
   readonly #onRestored?: () => void
+  readonly #onError: (error: unknown) => void
 
   constructor(source: Source | null = null, options: GreenscreenOptions<C> = {}) {
     // A canvas it makes is the default type's, or an OffscreenCanvas in a worker, which a worker's code types as C
@@ -65,6 +70,7 @@ export class Greenscreen<C extends Canvas = HTMLCanvasElement> {
     this.canvas = options.canvas ?? (createCanvas() as C)
     this.#onLost = options.onLost
     this.#onRestored = options.onRestored
+    this.#onError = options.onError ?? warnUnkeyable
     this.set(options.settings ?? {})
     this.source = source
     this.initialized = this.#initialize(options.backend ?? 'auto')
@@ -132,8 +138,8 @@ export class Greenscreen<C extends Canvas = HTMLCanvasElement> {
     return this.#renderer?.backend ?? null
   }
 
-  // Whether the canvas has a picture of the current source, keyed: false until the first is drawn, while the context
-  // is lost, and after dispose()
+  // Whether the canvas has a picture of the current source, keyed: false until the first is drawn, while the source's
+  // picture can't be keyed, while the context is lost, and after dispose()
   get ready(): boolean {
     return this.#ready
   }
@@ -199,7 +205,16 @@ export class Greenscreen<C extends Canvas = HTMLCanvasElement> {
         this.#uploaded = true
         draw = true
       } catch (error) {
-        feed.failed(error)
+        // Nothing is drawn until a picture can be taken, so the canvas doesn't show another source's picture, or an
+        // older one of this source's, as if it were this one. The handler is called last, so one that disposes the
+        // keyer or gives it another source finds it settled
+        this.#uploaded = false
+        this.#ready = false
+        if (feed.failed()) {
+          renderer.clear()
+          this.#onError(error)
+        }
+        return false
       }
     }
     if (!this.#uploaded || !draw) return this.#ready

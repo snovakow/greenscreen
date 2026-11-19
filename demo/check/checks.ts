@@ -441,13 +441,87 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
     } finally {
       widest.dispose()
     }
-    const wider = await make(toCanvas(widePicture(limit + 1)))
+    const errors: unknown[] = []
+    const wider = new Greenscreen(toCanvas(widePicture(limit + 1)), { backend, onError: (error) => errors.push(error) })
     try {
+      await wider.initialized
       assert(!wider.render() && !wider.ready && wider.frame === 0, `drew a picture ${limit + 1} wide`)
+      assert(
+        errors.length === 1 && errors[0] instanceof RangeError,
+        `onError was given ${errors.map(String).join(', ')}`,
+      )
     } finally {
       wider.dispose()
     }
     return `${limit} wide`
+  })
+
+  // A picture it can't key is said once, through onError, however often it's rendered. The canvas is left see-through,
+  // rather than showing the last picture as if it were this one, and a change of settings doesn't draw that again
+  await check(report, group, "Says once that it can't key a picture, and shows nothing of the last", async () => {
+    const limit = await textureLimit(backend)
+    const errors: unknown[] = []
+    // Read through a function, as TypeScript would otherwise take each assertion as fixing the count for good
+    const calls = () => errors.length
+    const keyer = new Greenscreen(source, { backend, onError: (error) => errors.push(error) })
+    try {
+      await keyer.initialized
+      assert(keyer.render(), 'render() drew nothing')
+      const drawn = keyer.frame
+      keyer.source = toCanvas(widePicture(limit + 1))
+      for (let i = 0; i < 3; i++) assert(!keyer.render(), `render() drew a picture ${limit + 1} wide`)
+      keyer.set({ similarity: 0.3 })
+      assert(!keyer.render(), 'a change of settings drew the last picture again')
+      assert(calls() === 1, `onError was called ${calls()} times`)
+      assert(errors[0] instanceof RangeError, `onError was given ${String(errors[0])}`)
+      assert(!keyer.ready && keyer.frame === drawn, `ready ${keyer.ready}, frame ${keyer.frame}`)
+      const read = readKeyed(keyer.canvas, keyer.canvas.width, keyer.canvas.height)
+      const most = read.reduce((high, value) => Math.max(high, value), 0)
+      assert(most <= 1, `the canvas still shows a picture: a channel at ${most}`)
+      // A picture it can key draws again, and another it can't is said again
+      keyer.source = source
+      assert(keyer.render(), 'render() drew nothing once given a picture it can key')
+      keyer.source = toCanvas(widePicture(limit + 1))
+      keyer.render()
+      assert(calls() === 2, `a second picture it can't key made ${calls() - 1} calls in all`)
+    } finally {
+      keyer.dispose()
+    }
+  })
+
+  // An image whose src changes is a new picture each time, and each one it can't key is said
+  await check(report, group, "Says so for each src of an image it can't key", async () => {
+    const limit = await textureLimit(backend)
+    const good = await toImage(source)
+    const wide = [await toImage(toCanvas(widePicture(limit + 1))), await toImage(toCanvas(widePicture(limit + 2)))]
+    const urls = [good.src, ...wide.map((each) => each.src)]
+    const element = new Image()
+    const show = async (src: string) => {
+      element.src = src
+      await element.decode()
+    }
+    const errors: unknown[] = []
+    const calls = () => errors.length
+    const keyer = new Greenscreen(element, { backend, onError: (error) => errors.push(error) })
+    try {
+      await keyer.initialized
+      await show(urls[0])
+      assert(keyer.render(), 'render() drew nothing for an image it can key')
+      await show(urls[1])
+      assert(!keyer.render() && calls() === 1, `the first src it can't key: ${calls()} calls`)
+      // The picture of the src before is still in the texture, and isn't drawn again
+      keyer.set({ similarity: 0.3 })
+      assert(!keyer.render(), 'a change of settings drew the src before again')
+      await show(urls[2])
+      keyer.render()
+      keyer.render()
+      assert(calls() === 2, `a second src it can't key: ${calls()} calls in all`)
+      await show(urls[0])
+      assert(keyer.render() && keyer.ready, 'render() drew nothing once the image could be keyed again')
+    } finally {
+      keyer.dispose()
+      for (const url of urls) URL.revokeObjectURL(url)
+    }
   })
 
   await check(report, group, 'Copies its settings and checks them', async () => {

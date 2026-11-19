@@ -18,7 +18,8 @@ interface Source {
 // given to open(). Each comes in an element of its own, made off the page, which takes the last one's place once it
 // has a picture. So a camera refused, or a file that won't open, leaves the last picture up and says why in message.
 // The newest request wins, and what it replaces is let go of once it's off the page: a camera's stream stops, which
-// frees the camera, and a file is unloaded. Returns the element, for the keyer and the preview, and its picture's size
+// frees the camera, and a file is unloaded. Returns the element, for the keyer and the preview, and its picture's size,
+// and refuse(), which says in message why the picture that's up can't be used, until the next takes its place
 export function useSource() {
   const [source, setSource] = useState<Source | null>(null)
   const [size, setSize] = useState<PictureSize | null>(null)
@@ -40,6 +41,9 @@ export function useSource() {
   const fail = useCallback((request: number, why: string) => {
     if (request === latest.current) setMessage(why)
   }, [])
+
+  // Says why the picture that's up can't be used. It's about what's up, so a request still out doesn't stop it
+  const refuse = useCallback((why: string) => setMessage(why), [])
 
   const camera = useCallback(() => {
     const request = (latest.current += 1)
@@ -139,7 +143,7 @@ export function useSource() {
     return () => element.removeEventListener('resize', measure)
   }, [element])
 
-  return { element, size, message, camera, open }
+  return { element, size, message, camera, open, refuse }
 }
 
 // Muted, so it can play without a click first

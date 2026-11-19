@@ -17,6 +17,11 @@ export function sizeOf(source: Source): [number, number] {
   return [source.width, source.height]
 }
 
+// What a keyer given no onError does with a picture it can't key
+export function warnUnkeyable(error: unknown): void {
+  console.warn('Greenscreen: the picture could not be keyed', error)
+}
+
 // One source as a keyer follows it: whether it has a picture yet, and whether it has a new one since it was last taken
 export class Feed {
   readonly source: Source
@@ -25,7 +30,8 @@ export class Feed {
   #src = ''
   #handle = 0
   #lastFrame = -Infinity
-  #warned = false
+  // The picture that last failed, by its src where it has one, so each failure is reported once. Null once one is taken
+  #failedOn: string | null = null
   #disposed = false
 
   constructor(source: Source) {
@@ -68,18 +74,22 @@ export class Feed {
   // The picture has been taken
   taken() {
     this.#fresh = false
+    this.#failedOn = null
     const source = this.source
     if ('videoWidth' in source) this.#time = source.currentTime
     else if ('naturalWidth' in source) this.#src = source.currentSrc
   }
 
-  // Taking the picture failed, as it does for one from another site without CORS. It's said once, and then tried again
-  // only when the picture changes
-  failed(error: unknown) {
+  // Taking the picture failed, as it does for one larger than the GPU's textures, or from another site without CORS.
+  // It's tried again only when the picture changes. Returns whether this failure is new: the first since a picture was
+  // last taken, or of an image or video since given another src, so each is reported once however often it's tried
+  failed(): boolean {
+    const source = this.source
+    const what = 'currentSrc' in source ? source.currentSrc : ''
+    const first = this.#failedOn !== what
     this.taken()
-    if (this.#warned) return
-    this.#warned = true
-    console.warn('Greenscreen: the source could not be read', error)
+    this.#failedOn = what
+    return first
   }
 
   // Take the picture again on the next render, as its pixels have changed

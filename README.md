@@ -92,12 +92,13 @@ Its props are:
 - `settings`, applied over the defaults
 - `backend`
 - `paused`, which stops it rendering by itself
+- `onError`, as the keyer's, which can be a new function on each render
 - `fit`, `'contain'` by default
 - `className` and `style`
 
 Its ref is the keyer. It's `null` until the keyer is made, just after the first render.
 
-`useGreenscreen(source, settings?, { backend, paused })` gives you the same keyer without the component, for drawing its canvas yourself. It returns `null` on the first render, and disposes the keyer when the component unmounts. StrictMode is safe: each mount gets a keyer, and therefore a canvas, of its own.
+`useGreenscreen(source, settings?, { backend, paused, onError })` gives you the same keyer without the component, for drawing its canvas yourself. It returns `null` on the first render, and disposes the keyer when the component unmounts. StrictMode is safe: each mount gets a keyer, and therefore a canvas, of its own.
 
 ## three.js
 
@@ -149,7 +150,7 @@ How settings are handled:
 ## The keyer
 
 ```ts
-new Greenscreen(source?, { canvas?, backend?, settings?, onLost?, onRestored? })
+new Greenscreen(source?, { canvas?, backend?, settings?, onLost?, onRestored?, onError? })
 ```
 
 **Construction options:**
@@ -157,12 +158,13 @@ new Greenscreen(source?, { canvas?, backend?, settings?, onLost?, onRestored? })
 - **`canvas`:** the canvas to draw in. It must be one no context has been taken from. Without it, the keyer makes its own.
 - **`backend`:** `'auto'` (the default), `'webgpu'` or `'webgl'`. See [Backends](#backends).
 - **`onLost`, `onRestored`:** called when the graphics context or device is lost and when it comes back. The keyer redraws on the next render after it's back.
+- **`onError`:** called once for each picture that can't be keyed, with what was thrown. That's a `RangeError` for a picture wider or taller than the GPU's textures go, often 8192 or 16384 pixels, and a `SecurityError` for one from another site without CORS. The canvas is left see-through until a picture can be keyed. Without `onError`, the keyer warns in the console. It isn't called for a source with no picture yet, such as a video still loading, or for a backend that can't be had, which `initialized` reports.
 
 **Properties:**
 - **`canvas`:** where the keyed picture is drawn.
 - **`backend`:** `'webgl'`, `'webgpu'`, or `null` until it has one.
 - **`initialized`:** a promise that resolves with the backend, or rejects if it can't be had.
-- **`ready`:** whether `canvas` holds a picture of the current source. It stays false, with a warning in the console, for a picture wider or taller than the GPU's textures go, often 8192 or 16384 pixels.
+- **`ready`:** whether `canvas` holds a picture of the current source. It's false while the source's picture can't be keyed; see `onError`.
 - **`frame`:** counts the pictures drawn.
 - **`settings`:** the current settings.
 - **`source`:** can be read and set.

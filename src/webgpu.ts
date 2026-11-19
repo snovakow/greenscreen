@@ -297,6 +297,12 @@ export class WebGPURenderer implements Renderer {
     output.drawImage(this.#surface, 0, 0)
   }
 
+  // The keyer's canvas shows its picture through a 2D context, which clears whatever its composite operation
+  clear() {
+    const canvas = this.#canvas
+    this.#output.clearRect(0, 0, canvas.width, canvas.height)
+  }
+
   dispose() {
     this.#disposed = true
     this.#lost = true

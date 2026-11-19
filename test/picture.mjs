@@ -15,8 +15,8 @@ function chunk(type, data) {
   return Buffer.concat([length, body, check])
 }
 
-export async function writePicture(path) {
-  const { width, height } = PICTURE
+// At PICTURE's size, or another, as one wider than the GPU's textures go
+export async function writePicture(path, { width, height } = PICTURE) {
   // Each row is a filter byte, 0 for none, then its pixels as RGB
   const row = 1 + width * 3
   const pixels = Buffer.alloc(row * height)

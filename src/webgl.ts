@@ -139,6 +139,14 @@ export class WebGLRenderer implements Renderer {
     gl.drawArrays(gl.TRIANGLES, 0, 3)
   }
 
+  // The drawing buffer is kept between draws, so it stays clear until the next
+  clear() {
+    if (this.#lost) return
+    const gl = this.#gl
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+  }
+
   // Lost, its default is prevented, which lets the browser give it back
   #onLost = (event: Event) => {
     event.preventDefault()

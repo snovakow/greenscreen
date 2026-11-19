@@ -1,7 +1,7 @@
 // The demo app, driven in headless Chrome with a fake camera: the picture keyed, then Flip, Pick key, Edit crop with a
-// drag of a corner, and Reset. Then a picture opened with File, a video dropped on the page, the camera back with
-// Camera, and a file that won't play. Each is read back from the keyed canvas. Serves the demo's build, or with --dev
-// its Vite server. Exits 1 if a step fails
+// drag of a corner, and Reset. Then a picture opened with File, one too wide to key, a video dropped on the page, the
+// camera back with Camera, and a file that won't play. Each is read back from the keyed canvas. Serves the demo's
+// build, or with --dev its Vite server. Exits 1 if a step fails
 //   node test/demo.mjs [--dev]
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -341,6 +341,33 @@ try {
   await control('Reset')
   const restored = await numberIn('Similarity')
   expect('Reset puts the default similarity back', restored === 0.75, String(restored))
+
+  // A picture a pixel wider than the backend's textures go can't be keyed: the demo says so, and the keyed picture of
+  // the last one is taken down rather than left up as if it were this one
+  const limit = await page.evaluate(`(async () => {
+    if (${JSON.stringify(backend.drawn)} === 'webgpu') {
+      return (await navigator.gpu.requestAdapter()).limits.maxTextureDimension2D
+    }
+    const gl = document.createElement('canvas').getContext('webgl2')
+    const viewport = gl.getParameter(gl.MAX_VIEWPORT_DIMS)
+    const limit = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), viewport[0], viewport[1])
+    gl.getExtension('WEBGL_lose_context')?.loseContext()
+    return limit
+  })()`)
+  const tooWideFile = join(folder, 'too-wide.png')
+  await writePicture(tooWideFile, { width: limit + 1, height: 2 })
+  expect('File opens a picture too wide to key', await choose(tooWideFile), `${limit + 1} wide`)
+  const refused = await poll(
+    () => page.evaluate(`document.querySelector('.message')?.textContent ?? ''`),
+    (text) => text.startsWith("Can't key"),
+  )
+  expect(
+    'it says it can\'t key it, and why',
+    refused.startsWith("Can't key this") && refused.includes(String(limit)),
+    refused,
+  )
+  const empty = await until((at) => at.blue[3] === 0 && at.green[3] === 0, PICTURE_POINTS)
+  expect('and takes the last keyed picture down', empty?.at.blue[3] === 0, show(empty?.at.blue))
 
   // A video file dropped on the page plays in place of the picture, on a loop
   const dropped = await page.evaluate(DROP_CLIP, { timeout: 30_000 })

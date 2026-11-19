@@ -9,6 +9,8 @@ export interface Renderer {
   upload(source: Source, width: number, height: number): void
   // Keys the texture into the canvas, sized to the texture, with the packed settings
   draw(settings: Float32Array<ArrayBuffer>): void
+  // Leaves the canvas see-through, at the size it has, for a picture that can't be keyed
+  clear(): void
   dispose(): void
 }
 

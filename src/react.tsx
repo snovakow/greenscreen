@@ -11,6 +11,7 @@ import { Greenscreen as Keyer } from './greenscreen.ts'
 import type { BackendChoice } from './greenscreen.ts'
 import { DEFAULT_SETTINGS } from './settings.ts'
 import type { Settings } from './settings.ts'
+import { warnUnkeyable } from './source.ts'
 import type { Source } from './types.ts'
 
 // The keyer for React: a hook that keeps one, and a component that shows its canvas. Each keyer makes its own canvas
@@ -29,6 +30,8 @@ export interface UseGreenscreenOptions {
   backend?: BackendChoice
   // While true, the keyer doesn't render by itself, and render() is yours to call
   paused?: boolean
+  // The source's picture can't be keyed, as the keyer's own onError says. A new function on each render is fine
+  onError?: (error: unknown) => void
 }
 
 type Given<T> = { -readonly [K in keyof T]?: T[K] }
@@ -48,12 +51,19 @@ export function useGreenscreen(
   settings?: Readonly<Partial<Settings>>,
   options: UseGreenscreenOptions = {},
 ): Keyer | null {
-  const { backend = 'auto', paused = false } = options
+  const { backend = 'auto', paused = false, onError } = options
   const [keyer, setKeyer] = useState<Keyer | null>(null)
+
+  // The latest handler, which the keyer calls through, so a new one doesn't make a new keyer. It's brought up to date
+  // after each render, before that render's source is given to the keyer
+  const handler = useRef(onError)
+  useEffect(() => {
+    handler.current = onError
+  })
 
   // Made in an effect, which StrictMode runs twice, so each mount has its own, disposed as it goes
   useEffect(() => {
-    const made = new Keyer(null, { backend })
+    const made = new Keyer(null, { backend, onError: (error) => (handler.current ?? warnUnkeyable)(error) })
     // oxlint-disable-next-line react/set-state-in-effect -- the keyer is made here, where it can be disposed
     setKeyer(made)
     return () => made.dispose()
@@ -92,10 +102,10 @@ export interface GreenscreenProps extends UseGreenscreenOptions {
 // The keyed picture, in a div the canvas fills: size the div with className or style. See-through where the key and
 // the cut take the picture out. The ref is the keyer, null until it's made after the first render
 export const Greenscreen = forwardRef<Keyer | null, GreenscreenProps>(function Greenscreen(
-  { source, settings, backend, paused, fit = 'contain', className, style },
+  { source, settings, backend, paused, onError, fit = 'contain', className, style },
   ref,
 ) {
-  const keyer = useGreenscreen(source, settings, { backend, paused })
+  const keyer = useGreenscreen(source, settings, { backend, paused, onError })
   const host = useRef<HTMLDivElement>(null)
 
   useImperativeHandle<Keyer | null, Keyer | null>(ref, () => keyer, [keyer])

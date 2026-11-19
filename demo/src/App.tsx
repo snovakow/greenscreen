@@ -19,7 +19,16 @@ export default function App() {
   // The tool up on the preview, one at a time
   const [mode, setMode] = useState<Mode>('raw')
   const panel = useRef<PanelHandle>(null)
-  const { element, size, message, camera, open } = useSource()
+  const { element, size, message, camera, open, refuse } = useSource()
+
+  // A picture the keyer can't take, as one larger than the GPU's textures, leaves the keyed picture empty and says why
+  const unkeyable = useCallback(
+    (error: unknown) => {
+      const why = error instanceof Error ? error.message : String(error)
+      refuse(`Can't key this: ${why.replace(/^Greenscreen: /, '')}`)
+    },
+    [refuse],
+  )
 
   const change = useCallback((patch: Partial<Settings>) => setSettings((current) => ({ ...current, ...patch })), [])
   // Crop turned off puts the handles down, as there's no cut left to show
@@ -88,7 +97,7 @@ export default function App() {
 
   return (
     <>
-      <Greenscreen source={element} settings={settings} className="picture" />
+      <Greenscreen source={element} settings={settings} onError={unkeyable} className="picture" />
       <Panel
         ref={panel}
         onChange={change}
