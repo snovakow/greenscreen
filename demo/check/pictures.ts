@@ -8,6 +8,7 @@ export const COLOURS: { name: string; rgba: [number, number, number, number] }[]
   { name: 'key green', rgba: [0, 255, 0, 255] },
   { name: 'screen green', rgba: [40, 190, 60, 255] },
   { name: 'shadow green', rgba: [20, 110, 40, 255] },
+  { name: 'dim screen green', rgba: [39, 137, 90, 255] },
   { name: 'screen blue', rgba: [30, 70, 210, 255] },
   { name: 'pure blue', rgba: [0, 0, 255, 255] },
   { name: 'magenta', rgba: [255, 0, 255, 255] },

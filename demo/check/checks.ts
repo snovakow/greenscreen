@@ -82,7 +82,8 @@ export async function keyingChecks(report: Report, subject: Subject): Promise<vo
   try {
     await check(report, group, 'Keys out green and keeps other colours', async () => {
       const read = await run({})
-      for (const name of ['key green', 'screen green']) {
+      // The key, and a screen as a camera sees it, down to the dim, cool-lit edge the default similarity is set for
+      for (const name of ['key green', 'screen green', 'shadow green', 'dim screen green']) {
         const [x, y] = blockCentre(name)
         const alpha = pixel(read, width, x, y)[3]
         assert(alpha <= 1, `${name} kept, alpha ${alpha}`)
@@ -293,9 +294,13 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
   })
 
   await check(report, group, 'Keys a recorded video in the colours a 2D canvas reads', async () => {
+    // At this similarity, each of the picture's colours is either taken out or kept whole. In the fade between them, a
+    // level's difference in how the video is read moves alpha by many levels, and this check is of the colours read
+    const settings = { similarity: 0.5 }
     const video = await recordedVideo(source)
     const keyer = await make(video)
     try {
+      keyer.set(settings)
       await until(() => keyer.render(), 1000)
       assert(keyer.ready, 'render() drew nothing')
       // The reference keys the frame as a 2D canvas reads it, as an eyedropper would. Each block is looked at in its
@@ -304,7 +309,7 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
       frame.width = width
       frame.height = height
       frame.getContext('2d')?.drawImage(video, 0, 0)
-      const want = reference(picture(frame), DEFAULT_SETTINGS)
+      const want = reference(picture(frame), full(settings))
       const read = readKeyed(keyer.canvas, width, height)
       let worst = 0
       let where = ''
@@ -351,7 +356,7 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
       keyer.render()
       keyer.render()
       assert(frame() === 1, `drew again with nothing new: frame ${frame()}`)
-      keyer.set({ similarity: 0.5 })
+      keyer.set({ similarity: DEFAULT_SETTINGS.similarity })
       keyer.render()
       assert(frame() === 1, `drew again for a setting that didn't change: frame ${frame()}`)
       keyer.set({ similarity: 0.3 })

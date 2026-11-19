@@ -74,11 +74,14 @@ const WHOLE: readonly Readonly<Point>[] = Object.freeze([
   Object.freeze({ x: 0, y: 1 }),
 ])
 
-// Green keyed out of the picture as it comes, uncut and unchanged otherwise
+// Green keyed out of the picture as it comes, uncut and unchanged otherwise. The similarity is set for a preset key
+// and a screen as a camera sees it: duller than the preset's pure colour, and darker still toward its edges, where the
+// light falls off. A key picked from the screen is much nearer the screen's own colours, and keys it at about 0.5,
+// which keeps more of the colours near the key
 export const DEFAULT_SETTINGS: Readonly<Settings> = Object.freeze({
   key: true,
   keyColor: KEY_COLORS.green,
-  similarity: 0.5,
+  similarity: 0.75,
   smoothness: 0.1,
   spill: 0.2,
   flip: false,

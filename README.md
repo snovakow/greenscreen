@@ -122,7 +122,7 @@ The texture may be in sRGB or have no colour space; it's keyed on its sRGB value
 |---|---|---|---|
 | `key` | boolean | `true` | Takes the key colour out. Off, the other settings still apply. |
 | `keyColor` | `0xrrggbb` | `0x00ff00` | The colour taken out. One picked from the screen as it's lit keys better than a preset. |
-| `similarity` | 0 to 1 | 0.5 | How near the key a colour must be to be taken out. It's a fraction of the key's own distance from grey: 0 takes out only the key, and 1 reaches grey. |
+| `similarity` | 0 to 1 | 0.75 | How near the key a colour must be to be taken out. It's a fraction of the key's own distance from grey: 0 takes out only the key, and 1 reaches grey. |
 | `smoothness` | 0 to 1 | 0.1 | How far past `similarity` a colour fades back in. |
 | `spill` | 0 to 1 | 0.2 | How far past `similarity` the key's tint is taken out of what's kept, which takes a green cast off edges and hair. |
 | `flip` | boolean | `false` | Mirrors the picture left to right. |
@@ -134,6 +134,8 @@ The texture may be in sRGB or have no colour space; it's keyed on its sRGB value
 | `brightness` | −1 to 1 | 0 | |
 | `contrast` | −1 to 1 | 0 | About mid-grey, from ×¼ to ×4. |
 | `gamma` | −1 to 1 | 0 | An exponent from 2 to ½. |
+
+The default similarity is set for a preset key and a screen as a camera sees it, which is duller than the preset's pure colour and darker toward its edges. It also takes out pale green against green, and partly takes out other colours near the key, such as teal, cyan and olive. A key picked from the screen is much nearer the screen's own colours, so with one, a similarity of about 0.5 is enough and keeps teal, cyan and olive.
 
 `DEFAULT_SETTINGS` holds the defaults, `RANGES` the limits and a slider step for each number, and `KEY_COLORS` the presets `green`, `blue` and `magenta`.
 
