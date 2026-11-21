@@ -26,9 +26,28 @@ const AROUND = [
 ]
 
 const clamp = (x: number, low: number, high: number) => Math.min(Math.max(x, low), high)
-const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-const toEncoded = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055)
+// sRGB's transfer, from encoded values to linear light, and back
+export const toLinear = (c: number): number => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
+export const toEncoded = (c: number): number => (c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055)
 const luma = ([r, g, b]: readonly number[]) => LUMA[0] * r + LUMA[1] * g + LUMA[2] * b
+
+// The add-on saturation, by way of HSB: the colour's hue, saturation and brightness, its saturation scaled and held to
+// 1 at most, and the colour again from the three
+function saturate([r, g, b]: readonly number[], change: number): number[] {
+  const value = Math.max(r, g, b)
+  const spread = value - Math.min(r, g, b)
+  if (spread <= 0) return [r, g, b]
+  // The hue, 0 to 6 round from red through yellow, green, cyan, blue and magenta
+  let hue = (r - g) / spread + 4
+  if (value === r) hue = ((g - b) / spread + 6) % 6
+  else if (value === g) hue = (b - r) / spread + 2
+  const saturation = Math.min((spread / value) * change, 1)
+  // A channel's share of the brightness at full saturation: 1 within a sixth of the way round from its own hue, 0 from
+  // two sixths away, and falling between. The offsets bring each channel's own hue, red's 0, green's 2 and blue's 4,
+  // round to 0
+  const share = (offset: number) => clamp(Math.abs(((hue + offset) % 6) - 3) - 1, 0, 1)
+  return [share(0), share(4), share(2)].map((full) => value * (1 - saturation * (1 - full)))
+}
 
 // hueSpill's measure of an sRGB colour: its BT.709 Pb and Pr
 const SCALE_B = 1.8556
@@ -128,12 +147,23 @@ export function reference(picture: Picture, settings: Settings): Float64Array {
       let alpha = own[3]
       let rgb = alpha > 0 ? own.slice(0, 3).map((c) => c / alpha) : [0, 0, 0]
 
+      let kept = 1
       if (settings.key) {
         const around = AROUND.reduce((sum, [dx, dy]) => sum + distance(sample(x + dx, y + dy)), 0)
         const beyond = (2 * around + distance(rgb)) / 9 - similarity
         alpha *= opacity
         alpha *= clamp(beyond / smoothness, 0, 1) ** 1.5
-        const kept = clamp(beyond / spill, 0, 1) ** 1.5
+        kept = clamp(beyond / spill, 0, 1) ** 1.5
+      }
+
+      // The add-ons tint and saturation, inside OBS's filter: after the key's distance is measured, and before spill,
+      // which desaturates to the tinted colour's luma as it was before saturation, and before the colour's correction.
+      // With the key off, they're all that changes the colour
+      rgb = rgb.map((c, k) => c * tint[k])
+      const grey = luma(rgb)
+      if (saturation !== 1) rgb = saturate(rgb, saturation)
+
+      if (settings.key) {
         if (settings.hueSpill) {
           // The add-on: the part of the colour's Pb and Pr that points the key's way comes out, keeping its luma
           const encoded = rgb.map(toEncoded)
@@ -146,16 +176,12 @@ export function reference(picture: Picture, settings: Settings): Float64Array {
           const b = lightness + pb * SCALE_B
           rgb = [r, (lightness - LUMA[0] * r - LUMA[2] * b) / LUMA[1], b].map((c) => toLinear(clamp(c, 0, 1)))
         } else {
-          const grey = luma(rgb)
           rgb = rgb.map((c) => grey + (c - grey) * kept)
         }
         rgb = rgb.map((c) => Math.max(c, 0) ** exponent * factor + brightness)
       }
       rgb = rgb.map((c) => clamp(c, 0, 1))
 
-      rgb = rgb.map((c, k) => c * tint[k])
-      const grey = luma(rgb)
-      rgb = rgb.map((c) => clamp(grey + (c - grey) * saturation, 0, 1))
       if (settings.crop) alpha *= cutMask(settings.corners, x / width, y / height, width, height)
 
       const o = (j * width + i) * 4

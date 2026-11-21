@@ -11,10 +11,12 @@
 // - Past similarity the alpha fades in over smoothness, and the colour is desaturated over spill, each on a curve of
 //   power 1.5. Opacity multiplies the alpha, and gamma, contrast and brightness the colour, in linear light. The
 //   colour is clamped, as OBS's target of 8 bits a channel holds it.
-// Then the add-ons, which aren't OBS's: the tint multiplies, saturation mixes with luma, and crop cuts. Flip mirrors
-// the result. One add-on acts inside the filter: hueSpill, where it's on, takes the key's hue out of the colour in place
-// of OBS's desaturation, by as much, keeping the colour's luma and other hues, on its sRGB values. The output is the
-// colour multiplied by its alpha
+// The add-ons aren't OBS's. Tint and saturation act inside the filter, once the key's distance is measured, which they
+// don't change, and before spill and the colour step: the tint multiplies, OBS's spill takes the tinted colour's luma
+// to desaturate to, and saturation scales the colour's HSB saturation. They act with the key off too. hueSpill, where
+// it's on, takes the key's hue out of the colour in place of OBS's desaturation, by as much, keeping the colour's luma
+// and other hues, on its sRGB values. Crop cuts, and flip mirrors the result. The output is the colour multiplied by
+// its alpha
 export const FRAGMENT: string = /* glsl */ `precision highp float;
 precision highp int;
 precision highp sampler2D;
@@ -88,6 +90,15 @@ vec3 fromLumaChroma(float y, vec2 c) {
   return vec3(r, (y - LUMA.r * r - LUMA.b * b) / LUMA.g, b);
 }
 
+// The add-on saturation: the colour's HSB saturation scaled by s, keeping its hue and its brightest channel. Each
+// channel's distance below the brightest scales by s, but no further than takes the dimmest to 0, as saturated as a
+// colour can be
+vec3 saturated(vec3 rgb, float s) {
+  float top = max(max(rgb.r, rgb.g), rgb.b);
+  float spread = top - min(min(rgb.r, rgb.g), rgb.b);
+  return top - (top - rgb) * min(s, top / max(spread, 1e-12));
+}
+
 // How far inside the cut's side from a to b the point p is, in output pixels. The points are in the picture's
 // coordinates, and size scales them to output pixels once they're subtracted, so a short side between two corners
 // close together keeps its direction. Two corners together leave no side, and a triangle
@@ -131,8 +142,10 @@ void main() {
   float alpha = sampled.a;
   vec3 rgb = alpha > 0.0 ? sampled.rgb / alpha : vec3(0.0);
 
-  // OBS's filter
-  if (key.w > 0.5) {
+  // OBS's filter: the key's distance, and from it the alpha and how much of the colour spill keeps
+  bool keyed = key.w > 0.5;
+  float kept = 1.0;
+  if (keyed) {
     vec2 texel = 1.0 / vec2(pixels);
     vec2 across = vec2(texel.x, 0.5 * texel.y);
     vec2 up = vec2(0.5 * texel.x, -texel.y);
@@ -143,24 +156,31 @@ void main() {
     float beyond = (2.0 * around + keyDistance(toEncoded(rgb))) / 9.0 - matte.x;
     alpha *= matte.w;
     alpha *= pow(clamp(beyond / matte.y, 0.0, 1.0), 1.5);
-    float kept = pow(clamp(beyond / matte.z, 0.0, 1.0), 1.5);
+    kept = pow(clamp(beyond / matte.z, 0.0, 1.0), 1.5);
+  }
+
+  // The add-ons tint and saturation. Spill desaturates to the tinted colour's luma, as it was before saturation
+  rgb *= extras.rgb;
+  float grey = dot(rgb, LUMA);
+  if (extras.w != 1.0) rgb = saturated(rgb, extras.w);
+
+  // The rest of OBS's filter: spill, then gamma, contrast and brightness
+  if (keyed) {
     if (settings[7].y > 0.5) {
-      // The add-on: only the part of the colour's chroma that points the key's way comes out
+      // The add-on hueSpill: only the part of the colour's chroma that points the key's way comes out
       vec3 encoded = toEncoded(rgb);
       vec2 toward = (key.xy - CHROMA_OFFSET) * key.z;
       vec2 c = chromaOf(encoded);
       c -= toward * max(dot(c, toward), 0.0) * (1.0 - kept);
       rgb = toLinear(clamp(fromLumaChroma(dot(encoded, LUMA), c), 0.0, 1.0));
     } else {
-      rgb = mix(vec3(dot(rgb, LUMA)), rgb, kept);
+      rgb = mix(vec3(grey), rgb, kept);
     }
     rgb = pow(max(rgb, 0.0), vec3(correction.x)) * correction.y + correction.z;
   }
   rgb = clamp(rgb, 0.0, 1.0);
 
-  // The add-ons
-  rgb *= extras.rgb;
-  rgb = clamp(mix(vec3(dot(rgb, LUMA)), rgb, extras.w), 0.0, 1.0);
+  // The add-on crop
   if (settings[7].x > 0.5) alpha *= cutMask(p, size);
 
   if (flags.z < 0.5) rgb = toEncoded(rgb);

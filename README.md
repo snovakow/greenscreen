@@ -143,7 +143,7 @@ The settings are OBS's for its chroma key filter, in OBS's units, ranges and def
 
 ### Add-ons
 
-The add-ons are the library's own, and not in OBS. At their defaults they change nothing. All but `hueSpill` act on the picture OBS's filter gives; `hueSpill` acts inside the filter, in place of one of its steps.
+The add-ons are the library's own, and not in OBS. At their defaults they change nothing. `flip` and `crop` act on the picture OBS's filter gives. `tint`, `saturation` and `hueSpill` act inside the filter, between its steps or in place of one; [How it keys](#how-it-keys) says where.
 
 | Setting | Values | Default | What it does |
 |---|---|---|---|
@@ -151,8 +151,8 @@ The add-ons are the library's own, and not in OBS. At their defaults they change
 | `flip` | boolean | `false` | Mirrors the keyed picture left to right. |
 | `crop` | boolean | `false` | Cuts the picture down to the shape `corners` make. |
 | `corners` | four `{ x, y }` | the whole picture | Clockwise from the top left. They're in the picture's coordinates, 0 to 1 with y down, and not mirrored by `flip`. The shape must be convex. |
-| `tint` | `0xrrggbb` | `0xffffff` | Multiplies the colour, in linear light. |
-| `saturation` | 0 to 2 | 1 | Mixes the colour with its luma, in linear light. 0 is grey. |
+| `tint` | `0xrrggbb` | `0xffffff` | Multiplies the colour, in linear light. It acts once the key's distance is measured, so it doesn't change what's keyed, and before spill, gamma, contrast and brightness. |
+| `saturation` | 0 to 2 | 1 | Scales the colour's HSB saturation, in linear light, keeping its hue and its brightest channel, after `tint` and before spill. 0 turns a colour to the grey of its brightest channel. No colour goes past full saturation, where its dimmest channel is 0. |
 
 `DEFAULT_SETTINGS` holds the defaults, and `RANGES` the limits and a slider step for each number: OBS's sliders' own, for OBS's settings.
 
@@ -165,14 +165,15 @@ How settings are handled:
 
 ### How it keys
 
-The keyer does what OBS's filter does, the filter's [second version](https://github.com/obsproject/obs-studio/blob/master/plugins/obs-filters/data/chroma_key_filter_v2.effect), in the same order:
+The keyer does what OBS's filter does, the filter's [second version](https://github.com/obsproject/obs-studio/blob/master/plugins/obs-filters/data/chroma_key_filter_v2.effect), in the same order, with two of the add-ons between its steps:
 
 1. **The picture** is read as OBS holds a source: premultiplied, in linear light, and blended between pixels in linear light. Each pixel's own colour is then divided by its alpha.
 2. **The distance from the key** is measured between colours' Cb and Cr, as BT.709 has them in studio range, worked out from their sRGB values. It's blurred, out of nine: the pixel itself counts once, and four samples round it count twice each. The samples are one pixel across and half a pixel down, and half a pixel across and one pixel up, each both ways. The settings count in thousandths of this distance, so a `similarity` of 400 is 0.4.
-3. **Past `similarity`,** the alpha comes in over `smoothness`, and the colour comes back from grey over `spill`, each as the 1.5 power of the way across. Grey is the colour's BT.709 luma. `opacity` multiplies the alpha.
-4. **The colour** is raised to `gamma`'s exponent and multiplied by `contrast`'s factor, and `brightness` is added, all in linear light. Then it's clamped.
+3. **The add-ons `tint` and `saturation`**, which aren't OBS's, act on the colour: the tint multiplies it, then saturation scales its HSB saturation. With `key` off, they act all the same, and the filter's own steps don't.
+4. **Past `similarity`,** the alpha comes in over `smoothness`, and the colour comes back from grey over `spill`, each as the 1.5 power of the way across. Grey is the colour's BT.709 luma, after `tint` and before `saturation`. `opacity` multiplies the alpha.
+5. **The colour** is raised to `gamma`'s exponent and multiplied by `contrast`'s factor, and `brightness` is added, all in linear light. Then it's clamped.
 
-After that the add-ons act, and the colour is encoded to sRGB for the canvas. With `hueSpill` on, step 3 takes out only the key's hue rather than greying the colour. It works on the colour's sRGB values, in BT.709's Pb and Pr. The part of the colour's chroma that points the key's way from grey comes out, by as much as OBS would grey it, and its luma is kept.
+After that `crop` cuts the picture down, and the colour is encoded to sRGB for the canvas. `flip` mirrors the whole of it. With `hueSpill` on, step 4 takes out only the key's hue rather than greying the colour. It works on the colour's sRGB values, in BT.709's Pb and Pr. The part of the colour's chroma that points the key's way from grey comes out, by as much as OBS would grey it, and its luma is kept.
 
 The one difference from OBS is the browser's. A page blends a see-through canvas into what's behind it on sRGB values, where OBS blends a source into its scene in linear light. So a partly see-through pixel mixes differently with what's behind it: at soft edges, and all over at an `opacity` below 1. Opaque pixels come out the same.
 

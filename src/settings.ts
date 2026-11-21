@@ -34,8 +34,8 @@ export interface Settings {
   // OBS's Gamma, −1 to 1: an exponent from 2 to 1/2, 0 for no change
   gamma: number
 
-  // Add-ons: the library's own, not OBS's. They act on the picture OBS's filter gives, except hueSpill, which acts
-  // inside the filter
+  // Add-ons: the library's own, not OBS's. Flip and crop act on the picture OBS's filter gives. Tint, saturation and
+  // hueSpill act inside the filter, between its steps or in place of one
 
   // Spill takes out only the key's hue, keeping each colour's luma and its other hues, where OBS's spill desaturates
   // the whole colour. It reaches as far as spill does, and takes as much of the key's hue out as OBS would of the colour
@@ -47,9 +47,11 @@ export interface Settings {
   // The cut's four corners, clockwise from the top left, in the picture's own coordinates: not mirrored by flip. The
   // shape they make must be convex. They're kept while crop is off
   corners: readonly Readonly<Point>[]
-  // Multiplies the picture's colour, as 0xrrggbb: white for no change
+  // Multiplies the picture's colour, as 0xrrggbb: white for no change. It acts once the key's distance is measured, so
+  // it doesn't change what's keyed, and before spill and gamma, contrast and brightness
   tint: number
-  // 0 for grey, 1 for no change, up to 2
+  // Scales the colour's HSB saturation, keeping its hue and its brightest channel, after tint and before spill: 0 for
+  // the grey of that channel, 1 for no change, up to 2. No colour goes past full saturation
   saturation: number
 }
 

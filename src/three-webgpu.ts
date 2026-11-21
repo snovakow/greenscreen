@@ -31,7 +31,7 @@ import type { Settings } from './settings.ts'
 // The keyer as a node material, for three.js's WebGPURenderer, on its WebGPU and WebGL2 backends alike: OBS's chroma
 // key filter and the add-ons, in the same steps as the GLSL in shader.glsl.ts, in TSL, from the same packed settings.
 // It keys its map as OBS's filter would key it drawn at the mesh's size on screen, and shows it as
-// MeshBasicNodeMaterial would, keyed, then mirrored, cut and coloured by the add-ons. It doesn't apply the texture's
+// MeshBasicNodeMaterial would, keyed, with the add-ons' colour, mirror and cut. It doesn't apply the texture's
 // offset, repeat or rotation, and it reads the map's own pixels and blends them itself, as OBS's sampler does, so it
 // uses no mipmaps. Like every node material, it gives the renderer linear colour, which the renderer encodes for the
 // screen itself
@@ -78,6 +78,13 @@ const fromLumaChroma = (y: FloatNode, c: Vec2Node) => {
   const r = y.add(c.y.mul(SCALE_R))
   const b = y.add(c.x.mul(SCALE_B))
   return vec3(r, y.sub(r.mul(LUMA[0])).sub(b.mul(LUMA[2])).div(LUMA[1]), b)
+}
+
+// The add-on saturation, as in shader.glsl.ts: HSB's saturation scaled, keeping the hue and the brightest channel
+const saturated = (rgb: Vec3Node, s: FloatNode) => {
+  const top = max(max(rgb.x, rgb.y), rgb.z)
+  const spread = top.sub(min(min(rgb.x, rgb.y), rgb.z))
+  return vec3(top).sub(vec3(top).sub(rgb).mul(min(s, top.div(max(spread, 1e-12)))))
 }
 
 const channelToLinear = (c: FloatNode) => select(c.lessThanEqual(0.04045), c.div(12.92), pow(c.add(0.055).div(1.055), 2.4))
@@ -131,8 +138,10 @@ function keyer(map: Texture, u: Uniforms) {
     const alpha = sampled.a.toVar()
     const rgb = select(alpha.greaterThan(0), sampled.rgb.div(alpha), vec3(0)).toVar()
 
-    // OBS's filter
-    If(u.key.w.greaterThan(0.5), () => {
+    // OBS's filter: the key's distance, and from it the alpha and how much of the colour spill keeps
+    const keyed = u.key.w.greaterThan(0.5)
+    const kept = float(1).toVar()
+    If(keyed, () => {
       const texel = vec2(1, 1).div(pixels).toVar()
       const across = vec2(texel.x, texel.y.mul(0.5)).toVar()
       const up = vec2(texel.x.mul(0.5), texel.y.negate()).toVar()
@@ -143,7 +152,18 @@ function keyer(map: Texture, u: Uniforms) {
       const beyond = around.mul(2).add(keyDistance(toEncoded(rgb))).div(9).sub(u.matte.x).toVar()
       alpha.mulAssign(u.matte.w)
       alpha.mulAssign(pow(clamp(beyond.div(u.matte.y), 0, 1), 1.5))
-      const kept = pow(clamp(beyond.div(u.matte.z), 0, 1), 1.5).toVar()
+      kept.assign(pow(clamp(beyond.div(u.matte.z), 0, 1), 1.5))
+    })
+
+    // The add-ons tint and saturation. Spill desaturates to the tinted colour's luma, as it was before saturation
+    rgb.mulAssign(u.extras.xyz)
+    const grey = luma(rgb).toVar()
+    If(u.extras.w.notEqual(1), () => {
+      rgb.assign(saturated(rgb, u.extras.w))
+    })
+
+    // The rest of OBS's filter: spill, then gamma, contrast and brightness
+    If(keyed, () => {
       If(u.switches.y.greaterThan(0.5), () => {
         // The add-on, hueSpill
         const encoded = toEncoded(rgb).toVar()
@@ -152,15 +172,13 @@ function keyer(map: Texture, u: Uniforms) {
         c.subAssign(toward.mul(max(dot(c, toward), 0)).mul(float(1).sub(kept)))
         rgb.assign(toLinear(clamp(fromLumaChroma(luma(encoded), c), 0, 1)))
       }).Else(() => {
-        rgb.assign(mix(vec3(luma(rgb)), rgb, kept))
+        rgb.assign(mix(vec3(grey), rgb, kept))
       })
       rgb.assign(pow(max(rgb, vec3(0)), vec3(u.correction.x)).mul(u.correction.y).add(u.correction.z))
     })
     rgb.assign(clamp(rgb, 0, 1))
 
-    // The add-ons
-    rgb.mulAssign(u.extras.xyz)
-    rgb.assign(clamp(mix(vec3(luma(rgb)), rgb, u.extras.w), 0, 1))
+    // The add-on crop
     If(u.switches.x.greaterThan(0.5), () => {
       const c0 = u.corners01.xy
       const c1 = u.corners01.zw

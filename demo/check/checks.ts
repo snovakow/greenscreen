@@ -16,7 +16,7 @@ import {
   widePicture,
 } from './pictures.ts'
 import { compare, delay, frames, pixel, readKeyed, same } from './read.ts'
-import { reference } from './reference.ts'
+import { reference, toEncoded, toLinear } from './reference.ts'
 
 // How far a channel may be from the reference, out of 255: the shader's single precision, rounding to 8 bits, and the
 // readback's own rounding
@@ -167,6 +167,64 @@ export async function keyingChecks(report: Report, subject: Subject): Promise<vo
       assert(off <= tolerance, `with hueSpill, red came out ${kept.join(',')}`)
       assert(greyed[3] === 255 && greyed[1] - red[1] > 40, `without it, red came out ${greyed.join(',')}, not greyed`)
       return `worst ${result.worst.toFixed(1)}`
+    })
+
+    // Add-ons: tint and saturation act inside OBS's filter, once the key's distance is measured and before spill and
+    // gamma, contrast and brightness, and saturation scales a colour's HSB saturation, keeping its hue and its
+    // brightest channel. What each must give is worked out here, apart from the reference
+    await check(report, group, 'Tints and saturates with the add-ons, inside the filter', async () => {
+      const at = (read: Parameters<typeof pixel>[0], name: string) => {
+        const [x, y] = blockCentre(name)
+        return pixel(read, width, x, y)
+      }
+      const near = (got: readonly number[], want: readonly number[]) =>
+        want.every((value, c) => Math.abs(got[c] - value) <= tolerance)
+      // At saturation 0 a colour turns to the grey of its brightest channel. With the key off, nothing else acts
+      const grey = await run({ key: false, saturation: 0 })
+      for (const name of ['red', 'skin', 'screen blue', 'orange']) {
+        const top = Math.max(...rgbaOf(name).slice(0, 3))
+        const got = at(grey, name)
+        assert(near(got, [top, top, top, 255]), `at saturation 0, ${name} came out ${got.join(',')}, not ${top} grey`)
+      }
+      // At 2, a colour more than half saturated loses its dimmest channel, and keeps its brightest
+      const vivid = await run({ key: false, saturation: 2 })
+      for (const name of ['red', 'screen blue', 'orange']) {
+        const rgb = rgbaOf(name).slice(0, 3)
+        const top = rgb.indexOf(Math.max(...rgb))
+        const dim = rgb.indexOf(Math.min(...rgb))
+        const got = at(vivid, name)
+        assert(
+          Math.abs(got[top] - rgb[top]) <= tolerance && got[dim] <= tolerance,
+          `at saturation 2, ${name} came out ${got.join(',')}`,
+        )
+      }
+      // The tint multiplies before brightness is added. Tinted 0x808080 and brightened by 0.2, white comes to
+      // 1 × 0.216 + 0.2 in linear light and black to 0.2, where tinting after would give 0.216 and 0.043
+      const shade = toLinear(0x80 / 255)
+      const tinted = await run({ tint: 0x808080, brightness: 0.2 })
+      for (const [name, linear] of [
+        ['white', 1],
+        ['black', 0],
+      ] as const) {
+        const want = Math.round(toEncoded(linear * shade + 0.2) * 255)
+        const got = at(tinted, name)
+        assert(near(got, [want, want, want, 255]), `tinted, ${name} came out ${got.join(',')}, not ${want} grey`)
+      }
+      // Red is 0.773 from the key. A similarity of 760 leaves it 0.013 past, which smoothness 1 keeps whole and spill
+      // 1000 greys all but 0.013 to the 1.5 of, to the tinted colour's luma, taken before saturation
+      const reach = { similarity: 760, smoothness: 1, spill: 1000 }
+      const red = rgbaOf('red')
+        .slice(0, 3)
+        .map((c) => toLinear(c / 255))
+      const greyOf = ([r, g, b]: readonly number[]) => Math.round(toEncoded(0.2126 * r + 0.7152 * g + 0.0722 * b) * 255)
+      // At saturation 0 it's the grey of red's luma, not of its brightest channel, which saturation first turns it to
+      const plain = greyOf(red)
+      const spilled = at(await run({ ...reach, saturation: 0 }), 'red')
+      assert(near(spilled, [plain, plain, plain, 255]), `spilled, red came out ${spilled.join(',')}, not ${plain} grey`)
+      // Tinted green it's still measured as red, so it's kept whole, and greyed to the luma of the green it's tinted to
+      const dark = greyOf([0, red[1], 0])
+      const green = at(await run({ ...reach, tint: 0x00ff00 }), 'red')
+      assert(near(green, [dark, dark, dark, 255]), `tinted green, red came out ${green.join(',')}, not ${dark} grey`)
     })
 
     await check(report, group, `Matches the reference over ${SWEEP} random settings`, async () => {

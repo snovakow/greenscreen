@@ -1,5 +1,5 @@
-// The keyer in WGSL, for the WebGPU renderer: OBS's chroma key filter and then the add-ons, in the same steps as the
-// GLSL in shader.glsl.ts, which says what they are. Its texture always holds the picture's sRGB values with the top row
+// The keyer in WGSL, for the WebGPU renderer: OBS's chroma key filter and the add-ons, in the same steps as the GLSL
+// in shader.glsl.ts, which says what they are. Its texture always holds the picture's sRGB values with the top row
 // first, so it reads none of the renderer flags that the GLSL takes from three.js
 export const SHADER: string = /* wgsl */ `
 struct Settings {
@@ -82,6 +82,12 @@ fn fromLumaChroma(y: f32, c: vec2f) -> vec3f {
   return vec3f(r, (y - LUMA.r * r - LUMA.b * b) / LUMA.g, b);
 }
 
+fn saturated(rgb: vec3f, s: f32) -> vec3f {
+  let top = max(max(rgb.r, rgb.g), rgb.b);
+  let spread = top - min(min(rgb.r, rgb.g), rgb.b);
+  return top - (top - rgb) * min(s, top / max(spread, 1e-12));
+}
+
 fn cutSide(a: vec2f, b: vec2f, p: vec2f, size: vec2f) -> f32 {
   let side = (b - a) * size;
   let len = length(side);
@@ -120,8 +126,10 @@ fn fragmentMain(input: Varyings) -> @location(0) vec4f {
   var alpha = sampled.a;
   var rgb = select(vec3f(0.0), sampled.rgb / alpha, alpha > 0.0);
 
-  // OBS's filter
-  if (key.w > 0.5) {
+  // OBS's filter: the key's distance, and from it the alpha and how much of the colour spill keeps
+  let keyed = key.w > 0.5;
+  var kept = 1.0;
+  if (keyed) {
     let texel = 1.0 / vec2f(pixels);
     let across = vec2f(texel.x, 0.5 * texel.y);
     let up = vec2f(0.5 * texel.x, -texel.y);
@@ -132,7 +140,18 @@ fn fragmentMain(input: Varyings) -> @location(0) vec4f {
     let beyond = (2.0 * around + keyDistance(toEncoded(rgb))) / 9.0 - matte.x;
     alpha *= matte.w;
     alpha *= pow(clamp(beyond / matte.y, 0.0, 1.0), 1.5);
-    let kept = pow(clamp(beyond / matte.z, 0.0, 1.0), 1.5);
+    kept = pow(clamp(beyond / matte.z, 0.0, 1.0), 1.5);
+  }
+
+  // The add-ons tint and saturation. Spill desaturates to the tinted colour's luma, as it was before saturation
+  rgb *= extras.rgb;
+  let grey = dot(rgb, LUMA);
+  if (extras.w != 1.0) {
+    rgb = saturated(rgb, extras.w);
+  }
+
+  // The rest of OBS's filter: spill, then gamma, contrast and brightness
+  if (keyed) {
     if (settings.switches.y > 0.5) {
       // The add-on, hueSpill
       let encoded = toEncoded(rgb);
@@ -141,15 +160,13 @@ fn fragmentMain(input: Varyings) -> @location(0) vec4f {
       c -= toward * max(dot(c, toward), 0.0) * (1.0 - kept);
       rgb = toLinear(clamp(fromLumaChroma(dot(encoded, LUMA), c), vec3f(0.0), vec3f(1.0)));
     } else {
-      rgb = mix(vec3f(dot(rgb, LUMA)), rgb, kept);
+      rgb = mix(vec3f(grey), rgb, kept);
     }
     rgb = pow(max(rgb, vec3f(0.0)), vec3f(correction.x)) * correction.y + correction.z;
   }
   rgb = clamp(rgb, vec3f(0.0), vec3f(1.0));
 
-  // The add-ons
-  rgb *= extras.rgb;
-  rgb = clamp(mix(vec3f(dot(rgb, LUMA)), rgb, extras.w), vec3f(0.0), vec3f(1.0));
+  // The add-on crop
   if (settings.switches.x > 0.5) {
     alpha *= cutMask(p, size);
   }
