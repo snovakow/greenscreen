@@ -59,7 +59,7 @@ function toSettings(values: Values): Partial<Settings> {
 
 const isNumber = (property: string): property is NumericSetting => Object.hasOwn(RANGES, property)
 
-// The decimal places in a number's step, which its slider shows it to and keeps it to: 0 for 1, 2 for 0.01
+// The decimal places in a number's step, which the panel keeps its value to: 0 for 1, 2 for 0.01
 const placesIn = (name: NumericSetting) => (String(RANGES[name].step).split('.')[1] ?? '').length
 
 // The controls the panel changes from outside it
@@ -108,7 +108,7 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
     const gui = new GUI({ width: 300 })
     const number = (folder: GUI, name: NumericSetting, label: string) => {
       const { min, max, step } = RANGES[name]
-      return folder.add(values, name, min, max, step).name(label).decimals(placesIn(name))
+      return folder.add(values, name, min, max, step).name(label)
     }
 
     const key = gui.add(values, 'key').name('Key')
@@ -147,8 +147,8 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
     gui.add({ reset }, 'reset').name('Reset')
 
     // lil-gui counts a slider's steps from its minimum, so where OBS's range starts below 0 a value can come out a hair
-    // off its step: −0.0499999999999999 for −0.05. It's put back on the step before the keyer has it and the panel
-    // shows it, which matters where lil-gui shows the value as it is, as it does while the arrow keys step it
+    // off its step, and it shows the value as it is: −0.0499999999999999 for −0.05. It's put back on its step before
+    // the keyer has it and the panel shows it
     gui.onChange(({ property }) => {
       if (isNumber(property)) values[property] = Number(values[property].toFixed(placesIn(property)))
       onChange(toSettings(values))

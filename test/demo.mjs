@@ -1,7 +1,8 @@
 // The demo app, driven in headless Chrome with a fake camera: the picture keyed, then Flip, Pick key, Edit crop with a
-// drag of a corner, numbers typed and stepped in the panel, and Reset. Then a picture opened with File, one too wide to
-// key, a video dropped on the page, the camera back with Camera, and a file that won't play. Each is read back from the
-// keyed canvas. Serves the demo's build, or with --dev its Vite server. Exits 1 if a step fails
+// drag of a corner, the panel's numbers typed, stepped and measured against their fields, and Reset. Then a picture
+// opened with File, one too wide to key, a video dropped on the page, the camera back with Camera, and a file that
+// won't play. Each is read back from the keyed canvas. Serves the demo's build, or with --dev its Vite server. Exits 1
+// if a step fails
 //   node test/demo.mjs [--dev]
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -65,6 +66,42 @@ const STARTUP = 20_000
 const POINTS = { green: [100, 240], blue: [540, 100], red: [320, 240], cutOut: [340, 20] }
 // A point in each half of the picture opened as a file
 const PICTURE_POINTS = { blue: [50, 200], green: [150, 200] }
+
+// The panel's numbers, by name, in the ranges and steps the library gives them, which are OBS's
+const NUMBERS = {
+  Similarity: [1, 1000, 1],
+  Smoothness: [1, 1000, 1],
+  'Key Color Spill Reduction': [1, 1000, 1],
+  Opacity: [0, 1, 0.0001],
+  Contrast: [-4, 4, 0.01],
+  Brightness: [-1, 1, 0.0001],
+  Gamma: [-1, 1, 0.01],
+  Saturation: [0, 2, 0.01],
+}
+// The widest text each of the panel's numbers can show, as the panel shows it, and the room its field has for text,
+// measured in the field's own font
+const FIT = `(numbers) => Object.entries(numbers).map(([name, [min, max, step]]) => {
+  const input = [...document.querySelectorAll('.lil-gui .lil-controller')]
+    .find((element) => element.querySelector('.lil-name')?.textContent === name)?.querySelector('input')
+  if (!input) return { name, widest: 'no field', width: Infinity, room: 0 }
+  const style = getComputedStyle(input)
+  const sides = ['borderLeftWidth', 'borderRightWidth', 'paddingLeft', 'paddingRight']
+  const room = input.getBoundingClientRect().width - sides.reduce((sum, side) => sum + parseFloat(style[side]), 0)
+  const context = document.createElement('canvas').getContext('2d')
+  context.font = style.font
+  const places = (String(step).split('.')[1] ?? '').length
+  let widest = ''
+  let width = 0
+  for (let i = 0; i <= Math.round((max - min) / step); i++) {
+    const text = String(Number((min + i * step).toFixed(places)))
+    const measured = context.measureText(text).width
+    if (measured > width) {
+      widest = text
+      width = measured
+    }
+  }
+  return { name, widest, width, room }
+})`
 
 // A video the page records and drops on itself as a file: its top half the camera's green, its bottom half the blue
 const CLIP = { width: 320, height: 240 }
@@ -305,6 +342,15 @@ try {
   await stepDown('Contrast', 9)
   const stepped = await numberIn('Contrast')
   expect('and one stepped to with the arrow keys', stepped === -0.09, String(stepped))
+  // lil-gui's fields are too narrow for the widest of Brightness's values, −0.4444, which the demo's stylesheet makes
+  // room for
+  const fits = await page.evaluate(`(${FIT})(${JSON.stringify(NUMBERS)})`)
+  const tightest = fits.reduce((tight, field) => (field.room - field.width < tight.room - tight.width ? field : tight))
+  expect(
+    'every number fits its field',
+    fits.length === Object.keys(NUMBERS).length && fits.every(({ width, room }) => width <= room),
+    `tightest ${tightest.name}'s ${tightest.widest}, ${tightest.width.toFixed(1)}px in ${tightest.room.toFixed(1)}px`,
+  )
 
   await control('Reset')
   const reset = await until((at) => at.green[3] === 0 && at.blue[3] === 255)

@@ -93,3 +93,9 @@ body {
 .message:empty {
   display: none;
 }
+
+/* The panel's number fields, 48px where lil-gui makes them 45px, so that the widest of Brightness's values, −0.4444,
+   fits. On touch screens lil-gui's own touch styles still apply, as they're the more specific */
+.lil-gui {
+  --slider-input-min-width: 48px;
+}
