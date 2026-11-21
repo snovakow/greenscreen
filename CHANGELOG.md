@@ -2,6 +2,10 @@
 
 Version Release Notes
 
+## 0.6.1 - 2026-11-21
+
+- Bug fix and user interface improvement
+
 ## 0.6.0 - 2026-11-21
 
 - Tint and saturation add-ons inside OBS's filter, before its spill, gamma, contrast and brightness, without changing which colours are keyed
