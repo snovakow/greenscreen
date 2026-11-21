@@ -1,11 +1,20 @@
 // The keyer in GLSL ES 3.00. The fragment shader is shared by the WebGL2 renderer and the three.js material, each
-// giving it vUv, where the pixel is on the output: 0 to 1 across and down. settings.ts says what's in settings.
+// giving it vUv, where the pixel is on the output: 0 to 1 across and down. pack.ts says what's in settings.
 //
-// It works on the picture's sRGB values throughout, as they come. The key is a distance in the Pb–Pr plane of BT.709,
-// as a fraction of the key's own distance from grey, steadied against noise by the 2×2 blocks diagonally round each
-// pixel. Spill takes the component along the key's direction out of the colour's chroma, keeping its luma. The tint
-// multiplies, saturation mixes with luma, and gamma, contrast (about mid-grey) and brightness follow, in that order.
-// The output is that colour multiplied by its alpha
+// First it keys as OBS Studio's chroma key filter does, the filter's second version, in the same steps and order:
+//   https://github.com/obsproject/obs-studio/blob/master/plugins/obs-filters/data/chroma_key_filter_v2.effect
+// - The picture is sampled as OBS holds a source: premultiplied, in linear light, and blended between pixels in
+//   linear light, as OBS's sampler blends its texture. The pixel's own colour is then divided by its alpha.
+// - How far a colour's chroma is from the key's is measured on its sRGB values. The measure is blurred: four samples
+//   round the pixel, a pixel across and half a pixel down, and half a pixel across and a pixel up, each either way,
+//   count twice each, and the pixel itself once, of nine.
+// - Past similarity the alpha fades in over smoothness, and the colour is desaturated over spill, each on a curve of
+//   power 1.5. Opacity multiplies the alpha, and gamma, contrast and brightness the colour, in linear light. The
+//   colour is clamped, as OBS's target of 8 bits a channel holds it.
+// Then the add-ons, which aren't OBS's: the tint multiplies, saturation mixes with luma, and crop cuts. Flip mirrors
+// the result. One add-on acts inside the filter: hueSpill, where it's on, takes the key's hue out of the colour in place
+// of OBS's desaturation, by as much, keeping the colour's luma and other hues, on its sRGB values. The output is the
+// colour multiplied by its alpha
 export const FRAGMENT: string = /* glsl */ `precision highp float;
 precision highp int;
 precision highp sampler2D;
@@ -16,50 +25,67 @@ uniform vec4 settings[8];
 in vec2 vUv;
 out vec4 fragColor;
 
+// A colour's Cb and Cr from its sRGB values, as OBS's filter has them: BT.709's, in studio range
+const vec3 CB = vec3(-0.100644, -0.338572, 0.439216);
+const vec3 CR = vec3(0.439216, -0.398942, -0.040274);
+const float CHROMA_OFFSET = 0.501961;
+// BT.709's luma, which OBS desaturates to
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+// The scales that take B' − Y' and R' − Y' to BT.709's Pb and Pr, for hueSpill
 const vec2 CHROMA_SCALE = vec2(1.8556, 1.5748);
 
-float luma(vec3 c) {
-  return dot(c, LUMA);
+float toLinear(float c) {
+  return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
 }
 
-// Pb and Pr, each from -0.5 to 0.5
-vec2 chroma(vec3 c) {
-  float y = luma(c);
-  return vec2(c.b - y, c.r - y) / CHROMA_SCALE;
+float toEncoded(float c) {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * pow(c, 1.0 / 2.4) - 0.055;
+}
+
+vec3 toLinear(vec3 c) {
+  return vec3(toLinear(c.r), toLinear(c.g), toLinear(c.b));
+}
+
+vec3 toEncoded(vec3 c) {
+  return vec3(toEncoded(c.r), toEncoded(c.g), toEncoded(c.b));
+}
+
+// The picture's pixel at a column, and a row from the top, clamped to the picture's edges as OBS's sampler clamps.
+// It's premultiplied, in linear light, as OBS holds a source, whichever way the texture holds it
+vec4 pixelAt(ivec2 at, ivec2 size) {
+  at = clamp(at, ivec2(0), size - 1);
+  if (settings[4].y > 0.5) at.y = size.y - 1 - at.y;
+  vec4 texel = texelFetch(image, at, 0);
+  vec3 rgb = settings[4].w > 0.5 ? texel.rgb : toLinear(texel.rgb);
+  return vec4(rgb * texel.a, texel.a);
+}
+
+// The picture at q, 0 to 1 across and down it, as OBS's linear sampler gives it: the four pixels round q, blended
+vec4 sampleAt(vec2 q, ivec2 size) {
+  vec2 f = q * vec2(size) - 0.5;
+  vec2 corner = floor(f);
+  vec2 w = f - corner;
+  ivec2 i = ivec2(corner);
+  vec4 above = mix(pixelAt(i, size), pixelAt(i + ivec2(1, 0), size), w.x);
+  vec4 below = mix(pixelAt(i + ivec2(0, 1), size), pixelAt(i + ivec2(1, 1), size), w.x);
+  return mix(above, below, w.y);
+}
+
+// How far a colour's chroma is from the key's, from its sRGB values
+float keyDistance(vec3 encoded) {
+  return distance(vec2(dot(encoded, CB), dot(encoded, CR)) + CHROMA_OFFSET, settings[0].xy);
+}
+
+// hueSpill's: an sRGB colour's Pb and Pr, and the colour again from its luma and those
+vec2 chromaOf(vec3 encoded) {
+  float y = dot(encoded, LUMA);
+  return vec2(encoded.b - y, encoded.r - y) / CHROMA_SCALE;
 }
 
 vec3 fromLumaChroma(float y, vec2 c) {
   float r = y + c.y * CHROMA_SCALE.y;
   float b = y + c.x * CHROMA_SCALE.x;
   return vec3(r, (y - LUMA.r * r - LUMA.b * b) / LUMA.g, b);
-}
-
-vec3 toLinear(vec3 c) {
-  c = clamp(c, 0.0, 1.0);
-  return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
-}
-
-vec3 toEncoded(vec3 c) {
-  c = clamp(c, 0.0, 1.0);
-  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
-}
-
-// The picture's sRGB values at t, whichever way its texture holds them
-vec4 fetch(vec2 t) {
-  vec4 texel = texture(image, t);
-  if (settings[4].w > 0.5) texel.rgb = toEncoded(texel.rgb);
-  return texel;
-}
-
-float keyDistance(vec3 c) {
-  return length(chroma(c) - settings[0].xy) * settings[0].z;
-}
-
-// 0 below 0 and 1 past width, smoothly between
-float ramp(float x, float width) {
-  float t = clamp(x / max(width, 1e-5), 0.0, 1.0);
-  return t * t * (3.0 - 2.0 * t);
 }
 
 // How far inside the cut's side from a to b the point p is, in output pixels. The points are in the picture's
@@ -93,40 +119,51 @@ void main() {
   vec2 size = 1.0 / max(fwidth(vUv), vec2(1e-6));
   vec4 key = settings[0];
   vec4 matte = settings[1];
-  vec4 colour = settings[2];
-  vec4 tone = settings[3];
+  vec4 correction = settings[2];
+  vec4 extras = settings[3];
   vec4 flags = settings[4];
 
-  // Where this pixel is on the picture, mirrored by flip, and where that is in the texture
+  // Where this pixel is on the picture, mirrored by flip
   vec2 p = vec2(flags.x > 0.5 ? 1.0 - vUv.x : vUv.x, vUv.y);
-  vec2 t = flags.y > 0.5 ? vec2(p.x, 1.0 - p.y) : p;
+  ivec2 pixels = textureSize(image, 0);
 
-  vec4 texel = fetch(t);
-  vec3 rgb = texel.rgb;
-  float alpha = texel.a * matte.w;
-  if (tone.w > 0.5) alpha *= cutMask(p, size);
+  vec4 sampled = sampleAt(p, pixels);
+  float alpha = sampled.a;
+  vec3 rgb = alpha > 0.0 ? sampled.rgb / alpha : vec3(0.0);
 
+  // OBS's filter
   if (key.w > 0.5) {
-    vec2 h = 0.5 / vec2(textureSize(image, 0));
-    float near = keyDistance(fetch(t - h).rgb) + keyDistance(fetch(t + h).rgb)
-      + keyDistance(fetch(t + vec2(h.x, -h.y)).rgb) + keyDistance(fetch(t + vec2(-h.x, h.y)).rgb);
-    float beyond = 0.5 * keyDistance(rgb) + 0.125 * near - matte.x;
-    alpha *= ramp(beyond, matte.y);
-    float amount = 1.0 - ramp(beyond, matte.z);
-    if (amount > 0.0) {
-      vec2 direction = key.xy * key.z;
-      vec2 c = chroma(rgb);
-      c -= direction * max(dot(c, direction), 0.0) * amount;
-      rgb = fromLumaChroma(luma(rgb), c);
+    vec2 texel = 1.0 / vec2(pixels);
+    vec2 across = vec2(texel.x, 0.5 * texel.y);
+    vec2 up = vec2(0.5 * texel.x, -texel.y);
+    float around = keyDistance(toEncoded(sampleAt(p - across, pixels).rgb))
+      + keyDistance(toEncoded(sampleAt(p + across, pixels).rgb))
+      + keyDistance(toEncoded(sampleAt(p - up, pixels).rgb))
+      + keyDistance(toEncoded(sampleAt(p + up, pixels).rgb));
+    float beyond = (2.0 * around + keyDistance(toEncoded(rgb))) / 9.0 - matte.x;
+    alpha *= matte.w;
+    alpha *= pow(clamp(beyond / matte.y, 0.0, 1.0), 1.5);
+    float kept = pow(clamp(beyond / matte.z, 0.0, 1.0), 1.5);
+    if (settings[7].y > 0.5) {
+      // The add-on: only the part of the colour's chroma that points the key's way comes out
+      vec3 encoded = toEncoded(rgb);
+      vec2 toward = (key.xy - CHROMA_OFFSET) * key.z;
+      vec2 c = chromaOf(encoded);
+      c -= toward * max(dot(c, toward), 0.0) * (1.0 - kept);
+      rgb = toLinear(clamp(fromLumaChroma(dot(encoded, LUMA), c), 0.0, 1.0));
+    } else {
+      rgb = mix(vec3(dot(rgb, LUMA)), rgb, kept);
     }
+    rgb = pow(max(rgb, 0.0), vec3(correction.x)) * correction.y + correction.z;
   }
-
-  rgb *= colour.rgb;
-  rgb = mix(vec3(luma(rgb)), rgb, colour.w);
-  rgb = pow(max(rgb, 0.0), vec3(tone.x));
-  rgb = (rgb - 0.5) * tone.y + 0.5 + tone.z;
   rgb = clamp(rgb, 0.0, 1.0);
-  if (flags.z > 0.5) rgb = toLinear(rgb);
+
+  // The add-ons
+  rgb *= extras.rgb;
+  rgb = clamp(mix(vec3(dot(rgb, LUMA)), rgb, extras.w), 0.0, 1.0);
+  if (settings[7].x > 0.5) alpha *= cutMask(p, size);
+
+  if (flags.z < 0.5) rgb = toEncoded(rgb);
   fragColor = vec4(rgb * alpha, alpha);
 }
 `

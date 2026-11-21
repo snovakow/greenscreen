@@ -12,16 +12,13 @@ const EDITING = 'Drag the corners…'
 const PICK_KEY = 'Pick key'
 const PICKING = 'Click the preview…'
 
-// The similarity a picked key starts with. The default is set for the green preset and screens as cameras see them,
-// from bright to dull. A key picked from the screen is near the screen's own colours, so it needs less reach, and at
-// the default it takes out colours of the subject's that are near the screen's
-const PICKED_SIMILARITY = 0.5
-
 type KeyType = keyof typeof KEY_COLORS | 'custom'
 
-// What the panel's controls edit: the library's settings, with the key chosen from presets or as a colour of its own
+// What the panel's controls edit: the library's settings, with the key chosen as OBS chooses it, from its presets or as
+// a colour of its own
 interface Values {
   key: boolean
+  hueSpill: boolean
   flip: boolean
   crop: boolean
   tint: number
@@ -39,6 +36,7 @@ interface Values {
 
 const defaults = (): Values => ({
   key: DEFAULT_SETTINGS.key,
+  hueSpill: DEFAULT_SETTINGS.hueSpill,
   flip: DEFAULT_SETTINGS.flip,
   crop: DEFAULT_SETTINGS.crop,
   tint: DEFAULT_SETTINGS.tint,
@@ -67,12 +65,11 @@ interface PanelControls {
   keyType: Controller
   keyColor: Controller
   pickKey: Controller
-  similarity: Controller
 }
 
 export interface PanelHandle {
-  // Makes hex the key and turns the key on, as choosing Custom and that colour in the panel would. A similarity still at
-  // the default goes down to suit a picked key
+  // Makes hex the key and turns the key on, as choosing Custom Color and that colour in the panel would. Nothing else
+  // changes, as in OBS
   setKey: (hex: number) => void
   // Turns Crop on or off, as its checkbox would
   setCrop: (on: boolean) => void
@@ -92,47 +89,49 @@ interface PanelProps {
   onPickKey: () => void
 }
 
-// The settings, in the order the panel has always had them, with Key first and Reset last, and each number in the
-// range the library gives it. The values outlive the panel, so one made again by StrictMode or a hot update starts
-// where the last left off. The cleanup destroys the panel, so StrictMode leaves one
+// The settings in two folders. The first is OBS's chroma key filter: OBS's controls, in OBS's order, under OBS's names,
+// each number in OBS's range, with Pick key, the demo's own, beside the key colour it picks. The second is the add-ons,
+// which are the library's own and not in OBS. Key, which turns OBS's filter on and off as its eye does in OBS, is
+// first, and Reset last. The values outlive the panel, so one made again by StrictMode or a hot update starts where the
+// last left off. The cleanup destroys the panel, so StrictMode leaves one
 export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPickKey }: PanelProps) {
   const [values] = useState(defaults)
   const controls = useRef<PanelControls | null>(null)
 
   useEffect(() => {
-    const gui = new GUI()
-    const number = (name: NumericSetting, label: string) => {
+    // Wide enough for OBS's longest name, Key Color Spill Reduction, to leave its slider room
+    const gui = new GUI({ width: 300 })
+    const number = (folder: GUI, name: NumericSetting, label: string) => {
       const { min, max, step } = RANGES[name]
-      return gui.add(values, name, min, max, step).name(label)
+      return folder.add(values, name, min, max, step).name(label)
     }
 
     const key = gui.add(values, 'key').name('Key')
-    gui.add(values, 'flip').name('Flip')
-    const crop = gui.add(values, 'crop').name('Crop').onChange(onCrop)
-    const editCrop = gui.add({ editCrop: onEditCrop }, 'editCrop').name(EDIT_CROP)
-    gui.addColor(values, 'tint').name('Color')
-    number('opacity', 'Opacity')
-    number('contrast', 'Contrast')
-    number('brightness', 'Brightness')
-    number('gamma', 'Gamma')
 
-    // The key's own colour shows only when the type is Custom
-    const keyType = gui
-      .add(values, 'keyType', { Green: 'green', Blue: 'blue', Magenta: 'magenta', Custom: 'custom' })
-      .name('Key color type')
-    const keyColor = gui.addColor(values, 'keyColor').name('Key color')
+    const obs = gui.addFolder('Chroma Key, as in OBS')
+    // The key's own colour shows only when the type is Custom Color, as in OBS
+    const keyType = obs
+      .add(values, 'keyType', { Green: 'green', Blue: 'blue', Magenta: 'magenta', 'Custom Color': 'custom' })
+      .name('Key Color Type')
+    const keyColor = obs.addColor(values, 'keyColor').name('Key Color')
     keyColor.show(values.keyType === 'custom')
-    const pickKey = gui.add({ pickKey: onPickKey }, 'pickKey').name(PICK_KEY)
+    keyType.onChange((type: KeyType) => keyColor.show(type === 'custom'))
+    const pickKey = obs.add({ pickKey: onPickKey }, 'pickKey').name(PICK_KEY)
+    number(obs, 'similarity', 'Similarity')
+    number(obs, 'smoothness', 'Smoothness')
+    number(obs, 'spill', 'Key Color Spill Reduction')
+    number(obs, 'opacity', 'Opacity')
+    number(obs, 'contrast', 'Contrast')
+    number(obs, 'brightness', 'Brightness')
+    number(obs, 'gamma', 'Gamma')
 
-    const similarity = number('similarity', 'Similarity')
-    // Back to a preset, a similarity still at a picked key's goes back to the default, which the presets are set for
-    keyType.onChange((type: KeyType) => {
-      keyColor.show(type === 'custom')
-      if (type !== 'custom' && values.similarity === PICKED_SIMILARITY) similarity.setValue(DEFAULT_SETTINGS.similarity)
-    })
-    number('smoothness', 'Smoothness')
-    number('spill', 'Spill')
-    number('saturation', 'Saturation')
+    const extras = gui.addFolder('Add-ons, not in OBS')
+    extras.add(values, 'hueSpill').name('Hue-only spill')
+    extras.add(values, 'flip').name('Flip')
+    const crop = extras.add(values, 'crop').name('Crop').onChange(onCrop)
+    const editCrop = extras.add({ editCrop: onEditCrop }, 'editCrop').name(EDIT_CROP)
+    extras.addColor(values, 'tint').name('Color')
+    number(extras, 'saturation', 'Saturation')
 
     const reset = () => {
       Object.assign(values, defaults())
@@ -144,7 +143,7 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
 
     gui.onChange(() => onChange(toSettings(values)))
 
-    // Where the panel ends, as it opens, closes and shows Key color, for the stylesheet to keep the grown preview
+    // Where the panel ends, as it opens, closes and shows Key Color, for the stylesheet to keep the grown preview
     // below it
     const root = document.documentElement
     const observer = new ResizeObserver(() => {
@@ -152,7 +151,7 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
     })
     observer.observe(gui.domElement)
 
-    controls.current = { key, crop, editCrop, keyType, keyColor, pickKey, similarity }
+    controls.current = { key, crop, editCrop, keyType, keyColor, pickKey }
     return () => {
       controls.current = null
       observer.disconnect()
@@ -167,7 +166,7 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
     controls.current?.pickKey.name(mode === 'pick' ? PICKING : PICK_KEY)
   }, [mode])
 
-  // Setting the controls' values runs their handlers, as a change made in the panel does: Key color shows, with the
+  // Setting the controls' values runs their handlers, as a change made in the panel does: Key Color shows, with the
   // colour picked, and the settings go to the keyer
   useImperativeHandle(
     ref,
@@ -176,13 +175,12 @@ export function Panel({ ref, onChange, onCrop, onReset, mode, onEditCrop, onPick
         controls.current?.keyType.setValue('custom')
         controls.current?.keyColor.setValue(hex)
         controls.current?.key.setValue(true)
-        if (values.similarity === DEFAULT_SETTINGS.similarity) controls.current?.similarity.setValue(PICKED_SIMILARITY)
       },
       setCrop(on: boolean) {
         controls.current?.crop.setValue(on)
       },
     }),
-    [values],
+    [],
   )
 
   return null

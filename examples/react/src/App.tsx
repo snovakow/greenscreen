@@ -1,8 +1,8 @@
-import { DEFAULT_SETTINGS, Greenscreen } from '@snovakow/greenscreen/react'
+import { DEFAULT_SETTINGS, Greenscreen, RANGES } from '@snovakow/greenscreen/react'
 import type { Settings } from '@snovakow/greenscreen/react'
 import { useState } from 'react'
 
-// The React entry in a React app, in StrictMode: a picture keyed, with a slider for the key's similarity
+// The React entry in a React app, in StrictMode: a picture keyed, with a slider for the key's similarity, in OBS's range
 
 // A picture to key: green, with a red square in the middle. A <video> playing a camera works the same way
 function makePicture() {
@@ -30,9 +30,9 @@ export default function App() {
         Similarity{' '}
         <input
           type="range"
-          min={0}
-          max={1}
-          step={0.01}
+          min={RANGES.similarity.min}
+          max={RANGES.similarity.max}
+          step={RANGES.similarity.step}
           value={settings.similarity}
           onChange={(event) => setSettings({ similarity: Number(event.target.value) })}
         />

@@ -2,18 +2,19 @@ import {
   clamp,
   dot,
   float,
+  floor,
   Fn,
   fwidth,
   If,
   int,
+  ivec2,
   max,
   min,
   mix,
   pow,
   select,
-  sRGBTransferEOTF,
-  sRGBTransferOETF,
   texture,
+  textureLoad,
   textureSize,
   uniform,
   uv,
@@ -23,14 +24,17 @@ import {
 } from 'three/tsl'
 import { ColorManagement, NodeMaterial, SRGBTransfer, Vector4 } from 'three/webgpu'
 import type { Node, Texture } from 'three/webgpu'
-import { pack, PACKED_LENGTH } from './pack.ts'
+import { CB, CR, pack, PACKED_LENGTH } from './pack.ts'
 import { DEFAULT_SETTINGS, mergeSettings } from './settings.ts'
 import type { Settings } from './settings.ts'
 
-// The keyer as a node material, for three.js's WebGPURenderer, on its WebGPU and WebGL2 backends alike: the same steps
-// as the GLSL in shader.glsl.ts, in TSL, from the same packed settings. It shows its map as MeshBasicNodeMaterial
-// would, keyed, mirrored, cut and coloured, though it doesn't apply the texture's offset, repeat or rotation. Like
-// every node material, it gives the renderer linear colour, which the renderer encodes for the screen itself
+// The keyer as a node material, for three.js's WebGPURenderer, on its WebGPU and WebGL2 backends alike: OBS's chroma
+// key filter and the add-ons, in the same steps as the GLSL in shader.glsl.ts, in TSL, from the same packed settings.
+// It keys its map as OBS's filter would key it drawn at the mesh's size on screen, and shows it as
+// MeshBasicNodeMaterial would, keyed, then mirrored, cut and coloured by the add-ons. It doesn't apply the texture's
+// offset, repeat or rotation, and it reads the map's own pixels and blends them itself, as OBS's sampler does, so it
+// uses no mipmaps. Like every node material, it gives the renderer linear colour, which the renderer encodes for the
+// screen itself
 
 export interface GreenscreenNodeMaterialParameters {
   // The picture to key: a VideoTexture, a Texture of an image or canvas, or any other 8-bit texture, in sRGB or with no
@@ -42,17 +46,21 @@ export interface GreenscreenNodeMaterialParameters {
 type Vec4Uniform = Node<'vec4'> & { value: Vector4 }
 type Vec2Node = Node<'vec2'>
 type Vec3Node = Node<'vec3'>
+type Vec4Node = Node<'vec4'>
 type FloatNode = Node<'float'>
 
 interface Uniforms {
   key: Vec4Uniform
   matte: Vec4Uniform
-  colour: Vec4Uniform
-  tone: Vec4Uniform
+  correction: Vec4Uniform
+  extras: Vec4Uniform
   flags: Vec4Uniform
   corners01: Vec4Uniform
   corners23: Vec4Uniform
+  switches: Vec4Uniform
 }
+
+const NAMES = ['key', 'matte', 'correction', 'extras', 'flags', 'corners01', 'corners23', 'switches'] as const
 
 const LUMA = [0.2126, 0.7152, 0.0722] as const
 const SCALE_B = 1.8556
@@ -60,9 +68,10 @@ const SCALE_R = 1.5748
 
 const luma = (c: Vec3Node) => dot(c, vec3(...LUMA))
 
-const chroma = (c: Vec3Node) => {
-  const y = luma(c)
-  return vec2(c.z.sub(y).div(SCALE_B), c.x.sub(y).div(SCALE_R))
+// hueSpill's: an sRGB colour's Pb and Pr, and the colour again from its luma and those
+const chromaOf = (encoded: Vec3Node) => {
+  const y = luma(encoded)
+  return vec2(encoded.z.sub(y).div(SCALE_B), encoded.x.sub(y).div(SCALE_R))
 }
 
 const fromLumaChroma = (y: FloatNode, c: Vec2Node) => {
@@ -71,10 +80,11 @@ const fromLumaChroma = (y: FloatNode, c: Vec2Node) => {
   return vec3(r, y.sub(r.mul(LUMA[0])).sub(b.mul(LUMA[2])).div(LUMA[1]), b)
 }
 
-const ramp = (x: FloatNode, width: FloatNode) => {
-  const t = clamp(x.div(max(width, 1e-5)), 0, 1)
-  return t.mul(t).mul(float(3).sub(t.mul(2)))
-}
+const channelToLinear = (c: FloatNode) => select(c.lessThanEqual(0.04045), c.div(12.92), pow(c.add(0.055).div(1.055), 2.4))
+const channelToEncoded = (c: FloatNode) =>
+  select(c.lessThanEqual(0.0031308), c.mul(12.92), pow(c, 1 / 2.4).mul(1.055).sub(0.055))
+const toLinear = (c: Vec3Node) => vec3(channelToLinear(c.x), channelToLinear(c.y), channelToLinear(c.z))
+const toEncoded = (c: Vec3Node) => vec3(channelToEncoded(c.x), channelToEncoded(c.y), channelToEncoded(c.z))
 
 const cutSide = (a: Vec2Node, b: Vec2Node, p: Vec2Node, size: Vec2Node) => {
   const side = b.sub(a).mul(size)
@@ -89,22 +99,69 @@ function keyer(map: Texture, u: Uniforms) {
     const out = vec2(uv().x, float(1).sub(uv().y)).toVar()
     const size = float(1).div(max(fwidth(out), vec2(1e-6))).toVar()
 
+    // Where it is on the picture, mirrored by flip, and the picture's size in pixels
     const p = vec2(select(u.flags.x.greaterThan(0.5), float(1).sub(out.x), out.x), out.y).toVar()
-    const t = vec2(p.x, float(1).sub(p.y)).toVar()
-    const fetch = (at: Vec2Node) => {
-      const sample = texture(map, at).level(float(0))
-      // @types/three gives the transfer functions untyped nodes
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      const encoded = sRGBTransferOETF(sample.rgb) as unknown as Vec3Node
-      return vec4(select(u.flags.w.greaterThan(0.5), encoded, sample.rgb), sample.a)
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- @types/three gives textureSize an untyped node
+    const pixels = vec2(textureSize(texture(map), int(0)) as unknown as Node<'uvec2'>).toVar()
+    const last = pixels.sub(1).toVar()
+
+    // A pixel, at a column and a row from the top in whole numbers, clamped to the picture's edges and premultiplied in
+    // linear light, and the picture at a point between pixels, as OBS's sampler gives it
+    const pixelAt = (at: Vec2Node): Vec4Node => {
+      const clamped = clamp(at, vec2(0, 0), last).toVar()
+      const row = select(u.flags.y.greaterThan(0.5), last.y.sub(clamped.y), clamped.y)
+      const texel = textureLoad(map, ivec2(vec2(clamped.x, row)), int(0)).toVar()
+      const rgb = select(u.flags.w.greaterThan(0.5), texel.rgb, toLinear(texel.rgb))
+      return vec4(rgb.mul(texel.a), texel.a)
     }
-    const keyDistance = (c: Vec3Node) => chroma(c).sub(u.key.xy).length().mul(u.key.z)
+    const sampleAt = (q: Vec2Node): Vec4Node => {
+      const f = q.mul(pixels).sub(0.5).toVar()
+      const corner = floor(f).toVar()
+      const w = f.sub(corner).toVar()
+      const above = mix(pixelAt(corner), pixelAt(corner.add(vec2(1, 0))), w.x)
+      const below = mix(pixelAt(corner.add(vec2(0, 1))), pixelAt(corner.add(vec2(1, 1))), w.x)
+      return mix(above, below, w.y)
+    }
+    const keyDistance = (encoded: Vec3Node) =>
+      vec2(dot(encoded, vec3(CB[0], CB[1], CB[2])).add(CB[3]), dot(encoded, vec3(CR[0], CR[1], CR[2])).add(CR[3]))
+        .sub(u.key.xy)
+        .length()
 
-    const texel = fetch(t).toVar()
-    const rgb = texel.rgb.toVar()
-    const alpha = texel.a.mul(u.matte.w).toVar()
+    const sampled = sampleAt(p).toVar()
+    const alpha = sampled.a.toVar()
+    const rgb = select(alpha.greaterThan(0), sampled.rgb.div(alpha), vec3(0)).toVar()
 
-    If(u.tone.w.greaterThan(0.5), () => {
+    // OBS's filter
+    If(u.key.w.greaterThan(0.5), () => {
+      const texel = vec2(1, 1).div(pixels).toVar()
+      const across = vec2(texel.x, texel.y.mul(0.5)).toVar()
+      const up = vec2(texel.x.mul(0.5), texel.y.negate()).toVar()
+      const around = keyDistance(toEncoded(sampleAt(p.sub(across)).rgb))
+        .add(keyDistance(toEncoded(sampleAt(p.add(across)).rgb)))
+        .add(keyDistance(toEncoded(sampleAt(p.sub(up)).rgb)))
+        .add(keyDistance(toEncoded(sampleAt(p.add(up)).rgb)))
+      const beyond = around.mul(2).add(keyDistance(toEncoded(rgb))).div(9).sub(u.matte.x).toVar()
+      alpha.mulAssign(u.matte.w)
+      alpha.mulAssign(pow(clamp(beyond.div(u.matte.y), 0, 1), 1.5))
+      const kept = pow(clamp(beyond.div(u.matte.z), 0, 1), 1.5).toVar()
+      If(u.switches.y.greaterThan(0.5), () => {
+        // The add-on, hueSpill
+        const encoded = toEncoded(rgb).toVar()
+        const toward = u.key.xy.sub(vec2(CB[3], CR[3])).mul(u.key.z).toVar()
+        const c = chromaOf(encoded).toVar()
+        c.subAssign(toward.mul(max(dot(c, toward), 0)).mul(float(1).sub(kept)))
+        rgb.assign(toLinear(clamp(fromLumaChroma(luma(encoded), c), 0, 1)))
+      }).Else(() => {
+        rgb.assign(mix(vec3(luma(rgb)), rgb, kept))
+      })
+      rgb.assign(pow(max(rgb, vec3(0)), vec3(u.correction.x)).mul(u.correction.y).add(u.correction.z))
+    })
+    rgb.assign(clamp(rgb, 0, 1))
+
+    // The add-ons
+    rgb.mulAssign(u.extras.xyz)
+    rgb.assign(clamp(mix(vec3(luma(rgb)), rgb, u.extras.w), 0, 1))
+    If(u.switches.x.greaterThan(0.5), () => {
       const c0 = u.corners01.xy
       const c1 = u.corners01.zw
       const c2 = u.corners23.xy
@@ -116,33 +173,8 @@ function keyer(map: Texture, u: Uniforms) {
       alpha.mulAssign(clamp(d.add(0.5), 0, 1))
     })
 
-    If(u.key.w.greaterThan(0.5), () => {
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- @types/three gives textureSize an untyped node
-      const dimensions = textureSize(texture(map), int(0)) as unknown as Node<'ivec2'>
-      const h = vec2(0.5, 0.5).div(vec2(dimensions)).toVar()
-      const near = keyDistance(fetch(t.sub(h)).rgb)
-        .add(keyDistance(fetch(t.add(h)).rgb))
-        .add(keyDistance(fetch(t.add(vec2(h.x, h.y.negate()))).rgb))
-        .add(keyDistance(fetch(t.add(vec2(h.x.negate(), h.y))).rgb))
-      const beyond = keyDistance(rgb).mul(0.5).add(near.mul(0.125)).sub(u.matte.x).toVar()
-      alpha.mulAssign(ramp(beyond, u.matte.y))
-      const amount = float(1).sub(ramp(beyond, u.matte.z)).toVar()
-      If(amount.greaterThan(0), () => {
-        const direction = u.key.xy.mul(u.key.z).toVar()
-        const c = chroma(rgb).toVar()
-        c.subAssign(direction.mul(max(dot(c, direction), 0)).mul(amount))
-        rgb.assign(fromLumaChroma(luma(rgb), c))
-      })
-    })
-
-    rgb.mulAssign(u.colour.xyz)
-    rgb.assign(mix(vec3(luma(rgb)), rgb, u.colour.w))
-    rgb.assign(pow(max(rgb, vec3(0)), vec3(u.tone.x)))
-    rgb.assign(rgb.sub(0.5).mul(u.tone.y).add(0.5).add(u.tone.z))
-    rgb.assign(clamp(rgb, 0, 1))
     // Straight, and linear: the material premultiplies it, and the renderer encodes it
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-    return vec4(sRGBTransferEOTF(rgb) as unknown as Vec3Node, alpha)
+    return vec4(rgb, alpha)
   })()
 }
 
@@ -157,11 +189,12 @@ export class GreenscreenNodeMaterial extends NodeMaterial {
   readonly #uniforms: Uniforms = {
     key: uniform(new Vector4()),
     matte: uniform(new Vector4()),
-    colour: uniform(new Vector4()),
-    tone: uniform(new Vector4()),
+    correction: uniform(new Vector4()),
+    extras: uniform(new Vector4()),
     flags: uniform(new Vector4()),
     corners01: uniform(new Vector4()),
     corners23: uniform(new Vector4()),
+    switches: uniform(new Vector4()),
   }
   #map: Texture | null = null
 
@@ -203,7 +236,7 @@ export class GreenscreenNodeMaterial extends NodeMaterial {
   }
 
   // The packed settings into the uniforms, with the flags the material sets itself: rows bottom up in uv, linear out,
-  // and linear in from a texture in sRGB, which the node that samples it decodes
+  // and linear in from a texture in sRGB, which the GPU decodes as it's read
   #write() {
     const packed = pack(this.#settings, this.#packed)
     const map = this.#map
@@ -211,8 +244,7 @@ export class GreenscreenNodeMaterial extends NodeMaterial {
     packed[18] = 1
     packed[19] = map && ColorManagement.getTransfer(map.colorSpace) === SRGBTransfer ? 1 : 0
     const u = this.#uniforms
-    const names = ['key', 'matte', 'colour', 'tone', 'flags', 'corners01', 'corners23'] as const
-    names.forEach((name, i) => u[name].value.fromArray(packed, i * 4))
+    NAMES.forEach((name, i) => u[name].value.fromArray(packed, i * 4))
   }
 
   // A clone keys the same map with the same settings, in uniforms of its own. NodeMaterial's copy would hand it the

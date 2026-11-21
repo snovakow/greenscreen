@@ -91,15 +91,11 @@ export function knownPreference(): boolean | null {
   return known
 }
 
-interface Pipeline {
-  pipeline: GPURenderPipeline
-  sampler: GPUSampler
-}
+const pipelines = new WeakMap<GPUDevice, Map<GPUTextureFormat, GPURenderPipeline>>()
 
-const pipelines = new WeakMap<GPUDevice, Map<GPUTextureFormat, Pipeline>>()
-
-// The keying pipeline for the device and canvas format, made once
-export function pipelineFor(device: GPUDevice, format: GPUTextureFormat): Pipeline {
+// The keying pipeline for the device and canvas format, made once. It has no sampler: the shader reads the texture's
+// pixels itself, and blends them as OBS's sampler would
+export function pipelineFor(device: GPUDevice, format: GPUTextureFormat): GPURenderPipeline {
   let byFormat = pipelines.get(device)
   if (!byFormat) {
     byFormat = new Map()
@@ -108,20 +104,13 @@ export function pipelineFor(device: GPUDevice, format: GPUTextureFormat): Pipeli
   let made = byFormat.get(format)
   if (!made) {
     const module = device.createShaderModule({ label: 'Greenscreen', code: SHADER })
-    const pipeline = device.createRenderPipeline({
+    made = device.createRenderPipeline({
       label: 'Greenscreen',
       layout: 'auto',
       vertex: { module, entryPoint: 'vertexMain' },
       fragment: { module, entryPoint: 'fragmentMain', targets: [{ format }] },
       primitive: { topology: 'triangle-list' },
     })
-    const sampler = device.createSampler({
-      magFilter: 'linear',
-      minFilter: 'linear',
-      addressModeU: 'clamp-to-edge',
-      addressModeV: 'clamp-to-edge',
-    })
-    made = { pipeline, sampler }
     byFormat.set(format, made)
   }
   return made
@@ -142,7 +131,7 @@ export class WebGPURenderer implements Renderer {
   readonly #context: GPUCanvasContext
   readonly #events: RendererEvents
   #device!: GPUDevice
-  #pipeline!: Pipeline
+  #pipeline!: GPURenderPipeline
   #uniforms!: GPUBuffer
   #texture: GPUTexture | null = null
   #bindGroup: GPUBindGroup | null = null
@@ -222,11 +211,10 @@ export class WebGPURenderer implements Renderer {
       })
       this.#texture = texture
       this.#bindGroup = device.createBindGroup({
-        layout: this.#pipeline.pipeline.getBindGroupLayout(0),
+        layout: this.#pipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 0, resource: this.#pipeline.sampler },
-          { binding: 1, resource: texture.createView() },
-          { binding: 2, resource: { buffer: this.#uniforms } },
+          { binding: 0, resource: texture.createView() },
+          { binding: 1, resource: { buffer: this.#uniforms } },
         ],
       })
     }
@@ -287,7 +275,7 @@ export class WebGPURenderer implements Renderer {
         },
       ],
     })
-    pass.setPipeline(this.#pipeline.pipeline)
+    pass.setPipeline(this.#pipeline)
     pass.setBindGroup(0, bindGroup)
     pass.draw(3)
     pass.end()

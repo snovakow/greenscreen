@@ -6,13 +6,16 @@ import type { Settings } from './settings.ts'
 import { FRAGMENT } from './shader.glsl.ts'
 
 // The keyer as a three.js material, for WebGLRenderer: the core's own GLSL, drawn on whatever mesh it's given. It keys
-// the texture in map, and shows it as MeshBasicMaterial would show that map on the mesh, keyed, mirrored, cut and
-// coloured by its settings, though it doesn't apply the texture's offset, repeat or rotation. The cut's corners are on
-// the picture as it shows on the mesh, with y down
+// the texture in map as OBS's filter would key it drawn at the mesh's size on screen, and shows it as MeshBasicMaterial
+// would show that map on the mesh, keyed, then mirrored, cut and coloured by the add-ons. It doesn't apply the
+// texture's offset, repeat or rotation. It reads the map's own pixels and blends them itself, as OBS's sampler does, so
+// it uses no mipmaps. The cut's corners, and OBS's samples round each pixel, are on the picture as it shows on the
+// mesh, with y down
 
 export interface GreenscreenMaterialParameters {
   // The picture to key: a VideoTexture, a Texture of an image or canvas, or any other 8-bit texture. It may be in
-  // sRGB or have no colour space; either way it's keyed on its sRGB values. It must not be premultiplied
+  // sRGB or have no colour space; either way it's keyed as OBS keys a picture of those sRGB values. It must not be
+  // premultiplied
   map?: Texture | null
   settings?: Readonly<Partial<Settings>>
 }

@@ -8,7 +8,7 @@ export async function keyCamera(video: HTMLVideoElement): Promise<HTMLCanvasElem
   // 'auto' comes to WebGPU where the browser has it on the GPU, and WebGL2 elsewhere. warmUp() finds out which, and gets
   // it ready, before any keyer needs it
   const backend: BackendName = await warmUp()
-  const keyer = new Greenscreen(video, { backend, settings: { keyColor: KEY_COLORS.green, similarity: 0.45 } })
+  const keyer = new Greenscreen(video, { backend, settings: { keyColor: KEY_COLORS.green, similarity: 450 } })
   await keyer.initialized
 
   const corners: Point[] = [

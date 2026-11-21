@@ -9,8 +9,8 @@ export function addScreen(scene: Scene, video: HTMLVideoElement, webgpu: boolean
   const map = new VideoTexture(video)
   map.colorSpace = SRGBColorSpace
   const material = webgpu
-    ? new GreenscreenNodeMaterial({ map, settings: { similarity: 0.45 } })
-    : new GreenscreenMaterial({ map, settings: { similarity: 0.45 } })
+    ? new GreenscreenNodeMaterial({ map, settings: { similarity: 450 } })
+    : new GreenscreenMaterial({ map, settings: { similarity: 450 } })
   material.set({ flip: true })
   scene.add(new Mesh(new PlaneGeometry(16 / 9, 1), material))
   // @ts-expect-error keyColor is a number

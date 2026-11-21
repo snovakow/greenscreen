@@ -1,5 +1,4 @@
 import type { Settings } from '@snovakow/greenscreen'
-import type { Filter } from './reference.ts'
 
 export type Status = 'pass' | 'fail' | 'skip'
 
@@ -16,11 +15,12 @@ export class Skip extends Error {}
 // Something that keys pictures, for the checks every way of keying must pass
 export interface Subject {
   group: string
-  // How its texture blends between texels, which the reference follows
-  filter?: Filter
-  // How far a channel may be from the reference, out of 255, if not the usual. A texture decoded from sRGB is blended
-  // by the GPU at a precision a little short of the reference's
+  // How far a channel may be from the reference, out of 255, if not the usual. A texture in sRGB is decoded by the GPU
+  // at a precision a little short of the reference's
   tolerance?: number
+  // The lowest smoothness and spill the sweep of random settings gives it, if not OBS's 1. Where the GPU decodes the
+  // texture from sRGB, a fade steeper than this turns the decoding's small error into several levels at edges
+  steepest?: number
   // Why it can't run here, or null when it can
   unavailable(): Promise<string | null>
   // Keys the canvas's picture with the settings, over the defaults, and returns what it drew into. It's read at once,

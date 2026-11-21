@@ -1,6 +1,8 @@
 # Greenscreen
 
-A chroma keyer for the browser, on WebGPU or WebGL2. It takes a video, an image or a canvas, keys a colour out of it, and draws the result into a canvas of its own: see-through where the key was, at the picture's own size. It can also mirror the picture, cut it down to a four-cornered shape, and change its colour.
+A chroma keyer for the browser, on WebGPU or WebGL2. It keys as [OBS Studio](https://obsproject.com)'s chroma key filter does, and takes the filter's settings in OBS's units, so a key tuned in OBS can be copied across as it is. It takes a video, an image or a canvas, keys a colour out of it, and draws the result into a canvas of its own: see-through where the key was, at the picture's own size.
+
+It also has add-ons of its own, which OBS's filter doesn't have. They can take only the key's hue out of edges, mirror the picture, cut it down to a four-cornered shape, and tint it or change its saturation.
 
 It has no dependencies, and it works on its own from plain JavaScript, from TypeScript with its own types, from React, and in three.js scenes.
 
@@ -38,7 +40,7 @@ The keyer draws into `keyer.canvas`. That canvas keeps its picture between rende
 To change the key, call `set()` with the settings to change:
 
 ```js
-keyer.set({ keyColor: 0x28be3c, similarity: 0.5, crop: true, corners })
+keyer.set({ keyColor: 0x28be3c, similarity: 300, crop: true, corners })
 ```
 
 ### Without a build step
@@ -70,7 +72,7 @@ import type { Settings } from '@snovakow/greenscreen'
 
 const keyer = new Greenscreen(video, { backend: 'webgl' })
 const { min, max, step } = RANGES.similarity
-keyer.set({ similarity: 0.4 } satisfies Partial<Settings>)
+keyer.set({ similarity: 450 } satisfies Partial<Settings>)
 ```
 
 They check under `moduleResolution` `bundler`, `node16` and `nodenext`.
@@ -82,7 +84,7 @@ In a worker, give the keyer an `OffscreenCanvas` and type it as one: `new Greens
 ```tsx
 import { Greenscreen } from '@snovakow/greenscreen/react'
 
-<Greenscreen source={video} settings={{ similarity: 0.4 }} className="picture" />
+<Greenscreen source={video} settings={{ similarity: 450 }} className="picture" />
 ```
 
 The component renders a `<div>` and puts the keyer's canvas in it, fitted with CSS `object-fit`. Give the `div` a size with `className` or `style`.
@@ -109,40 +111,50 @@ import { GreenscreenMaterial } from '@snovakow/greenscreen/three'
 
 const map = new THREE.VideoTexture(video)
 map.colorSpace = THREE.SRGBColorSpace
-const material = new GreenscreenMaterial({ map, settings: { similarity: 0.4 } })
+const material = new GreenscreenMaterial({ map, settings: { similarity: 450 } })
 scene.add(new THREE.Mesh(new THREE.PlaneGeometry(16 / 9, 1), material))
 ```
 
 `GreenscreenNodeMaterial`, from `@snovakow/greenscreen/three/webgpu`, does the same for `WebGPURenderer`, on both of its backends. Both materials take `map` and `settings`, and have `set()`, `reset()` and `settings` like the keyer.
 
-The texture may be in sRGB or have no colour space; it's keyed on its sRGB values either way. In three.js, the GPU decodes an image texture in sRGB before it blends neighbouring texels. So at hard edges the key can differ by a level or two from the core's, which always blends the encoded values.
+The texture may be in sRGB or have no colour space. Either way it's keyed as OBS would key a picture of those sRGB values drawn at the mesh's size on screen. The materials read the texture's pixels and blend them themselves, in linear light as OBS's sampler does, so they use no mipmaps. Where the GPU decodes a texture in sRGB, it's a little less precise than the core, so a steep fade can differ from the core's by several levels at hard edges.
 
 ## Settings
 
+The settings are OBS's for its chroma key filter, in OBS's units, ranges and defaults, followed by the add-ons, which are the library's own. The numbers in OBS's filter dialog can be copied across as they are.
+
+### OBS's chroma key filter
+
+| Setting | In OBS | Values | Default | What it does |
+|---|---|---|---|---|
+| `key` | The filter's eye | boolean | `true` | Runs the filter. Off, the picture passes through it unchanged, and only the add-ons apply. |
+| `keyColor` | Key Color Type, Key Color | `0xrrggbb` | `0x00ff00` | The colour taken out. |
+| `similarity` | Similarity | 1 to 1000 | 400 | How near the key a colour must be to be taken out. |
+| `smoothness` | Smoothness | 1 to 1000 | 80 | How far past `similarity` a colour fades back in. |
+| `spill` | Key Color Spill Reduction | 1 to 1000 | 100 | How far past `similarity` a colour that's kept is desaturated, which takes the key's cast off edges. |
+| `opacity` | Opacity | 0 to 1 | 1 | |
+| `contrast` | Contrast | −4 to 4 | 0 | A factor from ⅕ to 5. |
+| `brightness` | Brightness | −1 to 1 | 0 | Added to the colour. |
+| `gamma` | Gamma | −1 to 1 | 0 | An exponent from 2 to ½. |
+
+`KEY_COLORS` holds OBS's three presets: `green` is `0x00ff00`, `blue` is `0x0099ff` and `magenta` is `0xff00ff`. Any other colour is OBS's Custom Color. OBS stores colours as `0xbbggrr`, so a Key Color read from OBS's own files has its red and blue the other way round: OBS's blue, `0xFF9900`, is `0x0099ff` here.
+
+`similarity`, `smoothness` and `spill` are whole numbers, as in OBS, and any other number is rounded to the nearest.
+
+### Add-ons
+
+The add-ons are the library's own, and not in OBS. At their defaults they change nothing. All but `hueSpill` act on the picture OBS's filter gives; `hueSpill` acts inside the filter, in place of one of its steps.
+
 | Setting | Values | Default | What it does |
 |---|---|---|---|
-| `key` | boolean | `true` | Takes the key colour out. Off, the other settings still apply. |
-| `keyColor` | `0xrrggbb` | `0x33cc33` | The colour taken out. One picked from the screen as it's lit keys better than a preset. |
-| `similarity` | 0 to 1 | 0.75 | How near the key a colour must be to be taken out. It's a fraction of the key's own distance from grey: 0 takes out only the key, and 1 reaches grey. |
-| `smoothness` | 0 to 1 | 0.1 | How far past `similarity` a colour fades back in. |
-| `spill` | 0 to 1 | 0.8 | How far past `similarity` the key's tint is taken out of what's kept, which takes a green cast off edges and hair. It's a share of the way from `similarity` to grey: 0 takes none out, and 1 reaches grey. |
-| `flip` | boolean | `false` | Mirrors the picture left to right. |
+| `hueSpill` | boolean | `false` | Makes spill take out only the key's hue, where OBS's spill desaturates the whole colour. Each colour keeps its luma and its other hues, so a green cast comes off edges and hair, and skin and hair keep their own colour. It reaches as far as `spill`, and takes out as much of the key's hue as OBS would take of the colour. A colour that's near the key itself turns toward its other hues rather than grey: at OBS's defaults, cyan turns sky blue and olive brown. |
+| `flip` | boolean | `false` | Mirrors the keyed picture left to right. |
 | `crop` | boolean | `false` | Cuts the picture down to the shape `corners` make. |
 | `corners` | four `{ x, y }` | the whole picture | Clockwise from the top left. They're in the picture's coordinates, 0 to 1 with y down, and not mirrored by `flip`. The shape must be convex. |
-| `opacity` | 0 to 1 | 1 | |
-| `tint` | `0xrrggbb` | `0xffffff` | Multiplies the colour. |
-| `saturation` | 0 to 2 | 1 | 0 is grey. |
-| `brightness` | −1 to 1 | 0 | |
-| `contrast` | −1 to 1 | 0 | About mid-grey, from ×¼ to ×4. |
-| `gamma` | −1 to 1 | 0 | An exponent from 2 to ½. |
+| `tint` | `0xrrggbb` | `0xffffff` | Multiplies the colour, in linear light. |
+| `saturation` | 0 to 2 | 1 | Mixes the colour with its luma, in linear light. 0 is grey. |
 
-The green preset is pure green's hue at 60% of its strength, which is how a green screen looks to a camera. With it, the default similarity takes out screens from a bright yellow-green to a dull grey-green and a teal, as measured on footage from real shoots. Colours near the key go with the screen: pale and dark greens, olive and dark teal are taken out, and sage and army green are partly taken out. A key picked from the screen is much nearer the screen's own colours, so with one, a similarity of about 0.5 is enough, and it keeps more of the colours near the key.
-
-`spill` follows `similarity`: at its default of 0.8, it reaches 0.2 past a similarity of 0.75, and 0.4 past 0.5.
-
-Before 0.4.0, the green preset was `0x00ff00`, which leaves dull screens showing, and `spill` was a distance past `similarity`. To key as before, set `keyColor: 0x00ff00`, and `spill` to the old value divided by 1 − `similarity`. An old `spill` that reached past grey can't be matched, as `spill` reaches no further than grey.
-
-`DEFAULT_SETTINGS` holds the defaults, `RANGES` the limits and a slider step for each number, and `KEY_COLORS` the presets `green`, `blue` and `magenta`.
+`DEFAULT_SETTINGS` holds the defaults, and `RANGES` the limits and a slider step for each number: OBS's sliders' own, for OBS's settings.
 
 How settings are handled:
 - **Out of range:** a number outside its range is clamped.
@@ -150,6 +162,19 @@ How settings are handled:
 - **Undefined or unknown:** an `undefined` value, or a name that isn't a setting, is ignored. You can pass an app's own settings object as it is.
 - **Copied, not kept:** `set()` copies everything it's given, corners included. Changing your object afterwards does nothing until you pass it again.
 - **Snapshots:** `keyer.settings` is a frozen snapshot.
+
+### How it keys
+
+The keyer does what OBS's filter does, the filter's [second version](https://github.com/obsproject/obs-studio/blob/master/plugins/obs-filters/data/chroma_key_filter_v2.effect), in the same order:
+
+1. **The picture** is read as OBS holds a source: premultiplied, in linear light, and blended between pixels in linear light. Each pixel's own colour is then divided by its alpha.
+2. **The distance from the key** is measured between colours' Cb and Cr, as BT.709 has them in studio range, worked out from their sRGB values. It's blurred, out of nine: the pixel itself counts once, and four samples round it count twice each. The samples are one pixel across and half a pixel down, and half a pixel across and one pixel up, each both ways. The settings count in thousandths of this distance, so a `similarity` of 400 is 0.4.
+3. **Past `similarity`,** the alpha comes in over `smoothness`, and the colour comes back from grey over `spill`, each as the 1.5 power of the way across. Grey is the colour's BT.709 luma. `opacity` multiplies the alpha.
+4. **The colour** is raised to `gamma`'s exponent and multiplied by `contrast`'s factor, and `brightness` is added, all in linear light. Then it's clamped.
+
+After that the add-ons act, and the colour is encoded to sRGB for the canvas. With `hueSpill` on, step 3 takes out only the key's hue rather than greying the colour. It works on the colour's sRGB values, in BT.709's Pb and Pr. The part of the colour's chroma that points the key's way from grey comes out, by as much as OBS would grey it, and its luma is kept.
+
+The one difference from OBS is the browser's. A page blends a see-through canvas into what's behind it on sRGB values, where OBS blends a source into its scene in linear light. So a partly see-through pixel mixes differently with what's behind it: at soft edges, and all over at an `opacity` below 1. Opaque pixels come out the same.
 
 ## The keyer
 
@@ -195,7 +220,7 @@ Every WebGPU keyer on a page shares one device. A WebGL2 keyer has a context of 
 
 ## Demo and checks
 
-[demo](demo) is the greenscreen app this package grew out of, rebuilt on the React entry. It keys the camera, or an image or video you open with File or drop on the page, which stays in your browser. It has a lil-gui panel, a preview to pick the key from, and handles to drag the cut's corners. `demo/check` is a page of checks. It keys a test picture with every part of the library the browser can run, on WebGL2 and on WebGPU, and compares each pixel with the keyer worked out on the CPU. Open it in any browser to see whether the library works there.
+[demo](demo) is a greenscreen app built on the React entry. It keys the camera, or an image or video you open with File or drop on the page, which stays in your browser. It has a lil-gui panel, with OBS's controls under OBS's names in one folder and the add-ons in another, a preview to pick the key from, and handles to drag the cut's corners. `demo/check` is a page of checks. It holds the defaults, ranges and presets to OBS's, keys a test picture with every part of the library the browser can run, on WebGL2 and on WebGPU, and compares each pixel with the keyer worked out on the CPU. Open it in any browser to see whether the library works there.
 
 To work on the library, you need [Node.js](https://nodejs.org) 22.12 or later. In a clone:
 
@@ -211,4 +236,4 @@ The checks run in Chrome twice, once on the machine's GPU and once on SwiftShade
 
 ## Licence
 
-MIT, from version 0.3.0. Before 0.3.0 this repository was an app whose keying shader was ported from OBS Studio, which is GPL-2.0. Those versions aren't covered by this licence, and none of that code is in this package.
+MIT. The keying follows the maths of OBS Studio's chroma key filter, and the credit for it is OBS's. OBS Studio is GPL-2.0-or-later. The library's code is its own, and none of OBS's code is in this package.

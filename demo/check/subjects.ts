@@ -14,8 +14,8 @@ function webglSubject(srgb: boolean): Subject {
   let key: Subject['key'] | null = null
   return {
     group: `three.js WebGLRenderer, ${srgb ? 'sRGB texture' : 'texture with no colour space'}`,
-    filter: srgb ? 'linear' : 'encoded',
     tolerance: srgb ? 3 : 2,
+    steepest: srgb ? 50 : 1,
     async unavailable() {
       return document.createElement('canvas').getContext('webgl2') ? null : 'WebGL2 is not available'
     },
@@ -65,8 +65,8 @@ function nodeSubject(backend: 'webgpu' | 'webgl'): Subject {
   let key: Subject['key'] | null = null
   return {
     group: `three.js WebGPURenderer on ${backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}`,
-    filter: 'linear',
     tolerance: 3,
+    steepest: 50,
     async unavailable() {
       if (backend === 'webgl') return document.createElement('canvas').getContext('webgl2') ? null : 'WebGL2 is not available'
       if (!navigator.gpu) return 'WebGPU is not available'

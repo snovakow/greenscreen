@@ -218,11 +218,14 @@ try {
   await control('Flip')
   await until((at) => at.green[3] === 0)
 
-  // Pick key, then a click on the preview's blue
+  // Pick key, then a click on the preview's blue. The camera's green is 0.45 from its blue on OBS's measure, inside
+  // OBS's default similarity of 400 and its fade, so similarity is set lower first, by hand, as it would be in OBS
+  await enter('Similarity', 300)
   await control('Pick key')
   await new Promise((resolve) => setTimeout(resolve, 300))
+  // It grows as far as fits below the panel, from the 160px it was
   const preview = await box('.preview video')
-  expect('Pick key enlarges the preview', preview && preview.width > 300, preview && `${Math.round(preview.width)} wide`)
+  expect('Pick key enlarges the preview', preview && preview.width > 161, preview && `${Math.round(preview.width)} wide`)
   if (preview) {
     const x = preview.x + preview.width * 0.85
     const y = preview.y + preview.height * 0.2
@@ -232,13 +235,14 @@ try {
   const picked = await until((at) => at.blue[3] === 0)
   expect('picking blue keys blue out', picked?.at.blue[3] === 0, show(picked?.at.blue))
   expect('and keeps green', picked?.at.green[3] === 255, show(picked?.at.green))
-  const lowered = await numberIn('Similarity')
-  expect('and lowers similarity to suit a picked key', lowered === 0.5, String(lowered))
+  // As in OBS, choosing a key colour changes nothing else
+  const unchanged = await numberIn('Similarity')
+  expect('and leaves similarity as it was', unchanged === 300, String(unchanged))
   await page.evaluate(`document.querySelector('.done')?.click()`)
-  // Back to a preset, the default similarity, which the presets are set for
-  await enter('Key color type', 'Green')
-  const preset = await numberIn('Similarity')
-  expect('a preset chosen again puts it back', preset === 0.75, String(preset))
+  // Back to OBS's Green, which keys green out again
+  await enter('Key Color Type', 'Green')
+  const preset = await until((at) => at.green[3] === 0 && at.blue[3] === 255)
+  expect('Green chosen again keys green out', preset?.at.green[3] === 0 && preset.at.blue[3] === 255, show(preset?.at.green))
 
   // Edit crop, and the top-left corner dragged to the middle of the picture's top-left quarter
   await control('Reset')
@@ -308,7 +312,7 @@ try {
   )
 
   // Pick key, then a click on the picture's blue, with similarity set by hand first, which the pick leaves
-  await enter('Similarity', 0.3)
+  await enter('Similarity', 300)
   await control('Pick key')
   await new Promise((resolve) => setTimeout(resolve, 300))
   const tall = await box('.preview .source')
@@ -336,11 +340,11 @@ try {
   expect('picking the picture\'s blue keys it out', pickedBlue?.at.blue[3] === 0, show(pickedBlue?.at.blue))
   expect('and keeps its green', pickedBlue?.at.green[3] === 255, show(pickedBlue?.at.green))
   const byHand = await numberIn('Similarity')
-  expect('and leaves a similarity set by hand', byHand === 0.3, String(byHand))
+  expect('and leaves a similarity set by hand', byHand === 300, String(byHand))
   await page.evaluate(`document.querySelector('.done')?.click()`)
   await control('Reset')
   const restored = await numberIn('Similarity')
-  expect('Reset puts the default similarity back', restored === 0.75, String(restored))
+  expect("Reset puts OBS's default similarity back", restored === 400, String(restored))
 
   // A picture a pixel wider than the backend's textures go can't be keyed: the demo says so, and the keyed picture of
   // the last one is taken down rather than left up as if it were this one

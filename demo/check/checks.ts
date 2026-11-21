@@ -1,11 +1,9 @@
-import { DEFAULT_SETTINGS, Greenscreen, KEY_COLORS, warmUp } from '@snovakow/greenscreen'
-import type { BackendName, Point, Settings } from '@snovakow/greenscreen'
+import { DEFAULT_SETTINGS, Greenscreen, KEY_COLORS, RANGES, warmUp } from '@snovakow/greenscreen'
+import type { BackendName, NumericSetting, Point, Range, Settings } from '@snovakow/greenscreen'
 import { assert, check, random, Skip } from './harness.ts'
 import type { Report, Subject } from './harness.ts'
 import {
   blockCentre,
-  blocks,
-  centreOf,
   COLOURS,
   otherPicture,
   picture,
@@ -19,18 +17,13 @@ import {
 } from './pictures.ts'
 import { compare, delay, frames, pixel, readKeyed, same } from './read.ts'
 import { reference } from './reference.ts'
-import { SCREENS } from './screens.ts'
-import type { RGB } from './screens.ts'
-
-// The similarity a key picked from the screen keys it at, as the README and the demo have it
-const PICKED_SIMILARITY = 0.5
 
 // How far a channel may be from the reference, out of 255: the shader's single precision, rounding to 8 bits, and the
 // readback's own rounding
 const TOLERANCE = 2
 const SWEEP = 24
 
-// Colours far enough from green that the default key must leave them as they are
+// Colours far enough from green that OBS's defaults leave them as they are
 const KEPT = ['red', 'skin', 'white', 'black', 'grey', 'screen blue', 'purple', 'orange', 'pink', 'magenta']
 
 function full(settings: Partial<Settings>): Settings {
@@ -52,23 +45,25 @@ function randomColour(next: () => number) {
   return (Math.floor(next() * 256) << 16) | (Math.floor(next() * 256) << 8) | Math.floor(next() * 256)
 }
 
+// OBS's settings across their ranges, as whole numbers where OBS keeps them whole, and the add-ons'
 export function randomSettings(next: () => number): Partial<Settings> {
   const keys = [KEY_COLORS.green, 0x28be3c, KEY_COLORS.blue, 0x1e46d2, KEY_COLORS.magenta, randomColour(next)]
   return {
     key: next() < 0.85,
     keyColor: keys[Math.floor(next() * keys.length)],
-    similarity: 0.15 + next() * 0.6,
-    smoothness: 0.02 + next() * 0.3,
-    spill: next(),
+    similarity: 100 + Math.floor(next() * 500),
+    smoothness: 1 + Math.floor(next() * 300),
+    spill: 1 + Math.floor(next() * 1000),
+    opacity: 0.3 + next() * 0.7,
+    contrast: (next() - 0.5) * 8,
+    brightness: (next() - 0.5) * 0.6,
+    gamma: (next() - 0.5) * 2,
+    hueSpill: next() < 0.5,
     flip: next() < 0.5,
     crop: next() < 0.5,
     corners: randomQuad(next),
-    opacity: 0.3 + next() * 0.7,
     tint: next() < 0.5 ? 0xffffff : randomColour(next) | 0x808080,
     saturation: next() * 2,
-    brightness: (next() - 0.5) * 0.6,
-    contrast: (next() - 0.5) * 1.2,
-    gamma: (next() - 0.5) * 1.6,
   }
 }
 
@@ -120,7 +115,7 @@ export async function keyingChecks(report: Report, subject: Subject): Promise<vo
   try {
     await check(report, group, 'Keys out green and keeps other colours', async () => {
       const read = await run({})
-      // The key, and a screen as a camera sees it, down to the dim, cool-lit edge the default similarity is set for
+      // The key, and greens near it, down to a dim, cool-lit screen, which OBS's defaults take out
       for (const name of ['key green', 'screen green', 'shadow green', 'dim screen green']) {
         const [x, y] = blockCentre(name)
         const alpha = pixel(read, width, x, y)[3]
@@ -135,50 +130,8 @@ export async function keyingChecks(report: Report, subject: Subject): Promise<vo
       }
     })
 
-    // Keys blocks of the colours, and says which of out aren't taken out and which of whole aren't kept whole. The
-    // picture is the test picture's size, the rest of it grey, as three.js keeps a texture at the size it first had
-    const outAndWhole = async (out: readonly RGB[], whole: readonly RGB[], settings: Partial<Settings>) => {
-      const colours = [...out, ...whole]
-      const grey = Array.from({ length: COLOURS.length - colours.length }, () => [128, 128, 128, 255])
-      const keyed = await subject.key(toCanvas(blocks([...colours.map((rgb) => [...rgb, 255]), ...grey])), settings)
-      const read = readKeyed(keyed.canvas, keyed.width, keyed.height)
-      const failures: string[] = []
-      colours.forEach((rgb, index) => {
-        const [x, y] = centreOf(index)
-        const alpha = pixel(read, keyed.width, x, y)[3]
-        if (index < out.length && alpha > 1) failures.push(`${rgb.join(',')} kept, alpha ${alpha}`)
-        if (index >= out.length && alpha < 254) failures.push(`${rgb.join(',')} cut into, alpha ${alpha}`)
-      })
-      return failures
-    }
-
-    // Real screens as cameras recorded them, each keyed with the key a click on it picks. It's taken out to its darkest
-    // and its farthest from that key, and the subject's nearest colours are kept whole, at a similarity of about 0.46
-    // to 0.57
-    await check(report, group, `Keys real screens with a key picked from each, at ${PICKED_SIMILARITY}`, async () => {
-      const failures: string[] = []
-      for (const screen of SCREENS) {
-        const keyColor = (screen.key[0] << 16) | (screen.key[1] << 8) | screen.key[2]
-        const found = await outAndWhole(screen.screen, screen.nearPicked, { keyColor, similarity: PICKED_SIMILARITY })
-        failures.push(...found.map((failure) => `${screen.name}: ${failure}`))
-      }
-      assert(failures.length === 0, failures.join('; '))
-    })
-
-    // The same screens with the default key: each one's middle, darkest and brightest colours are taken out, and the
-    // subject's nearest colours are kept whole, at a similarity of about 0.74 to 0.77. With pure green as the key, the
-    // duller screens stay
-    await check(report, group, 'Keys real screens with the default key', async () => {
-      const failures: string[] = []
-      for (const screen of SCREENS) {
-        const found = await outAndWhole(screen.screen.slice(0, 3), screen.nearDefault, {})
-        failures.push(...found.map((failure) => `${screen.name}: ${failure}`))
-      }
-      assert(failures.length === 0, failures.join('; '))
-    })
-
     await check(report, group, 'Matches the reference, default settings', async () => {
-      const result = compare(await run({}), reference(input, full({}), subject.filter), width, tolerance)
+      const result = compare(await run({}), reference(input, full({})), width, tolerance)
       assert(result.over === 0, `${result.over} pixels off: ${result.detail}`)
       return `worst ${result.worst.toFixed(1)}`
     })
@@ -191,13 +144,29 @@ export async function keyingChecks(report: Report, subject: Subject): Promise<vo
         { x: 0.2, y: 0.7 },
       ] }
       const read = await run(settings)
-      const result = compare(read, reference(input, full(settings), subject.filter), width, tolerance)
+      const result = compare(read, reference(input, full(settings)), width, tolerance)
       assert(result.over === 0, `${result.over} pixels off: ${result.detail}`)
       assert(pixel(read, width, 0, 0)[3] === 0, 'the corner outside the cut was kept')
-      // Yellow is inside the cut, and flipped it's as far from the right as it was from the left
-      const [yx, yy] = blockCentre('yellow')
-      const got = pixel(read, width, width - 1 - yx, yy)
-      assert(got[0] > 200 && got[1] > 200 && got[2] < 80 && got[3] === 255, `yellow didn't mirror: ${got.join(',')}`)
+      // Red is inside the cut, and flipped it's as far from the right as it was from the left
+      const [rx, ry] = blockCentre('red')
+      const got = pixel(read, width, width - 1 - rx, ry)
+      assert(got[0] > 200 && got[1] < 60 && got[2] < 60 && got[3] === 255, `red didn't mirror: ${got.join(',')}`)
+    })
+
+    // An add-on: hueSpill takes out only the key's hue, where OBS's spill desaturates. Red's hue points away from
+    // green's, so with similarity far enough for spill to reach red, OBS's spill greys it, and hueSpill leaves it red
+    await check(report, group, "Takes only the key's hue out with the hueSpill add-on", async () => {
+      const result = compare(await run({ hueSpill: true }), reference(input, full({ hueSpill: true })), width, tolerance)
+      assert(result.over === 0, `at OBS's defaults, ${result.over} pixels off: ${result.detail}`)
+      const reach = { similarity: 700, smoothness: 1, spill: 300 }
+      const [x, y] = blockCentre('red')
+      const greyed = pixel(await run(reach), width, x, y)
+      const kept = pixel(await run({ ...reach, hueSpill: true }), width, x, y)
+      const red = rgbaOf('red')
+      const off = Math.max(...kept.map((value, c) => Math.abs(value - red[c])))
+      assert(off <= tolerance, `with hueSpill, red came out ${kept.join(',')}`)
+      assert(greyed[3] === 255 && greyed[1] - red[1] > 40, `without it, red came out ${greyed.join(',')}, not greyed`)
+      return `worst ${result.worst.toFixed(1)}`
     })
 
     await check(report, group, `Matches the reference over ${SWEEP} random settings`, async () => {
@@ -205,7 +174,10 @@ export async function keyingChecks(report: Report, subject: Subject): Promise<vo
       let worst = 0
       for (let i = 0; i < SWEEP; i++) {
         const settings = randomSettings(next)
-        const result = compare(await run(settings), reference(input, full(settings), subject.filter), width, tolerance)
+        const steepest = subject.steepest ?? 1
+        settings.smoothness = Math.max(settings.smoothness ?? steepest, steepest)
+        settings.spill = Math.max(settings.spill ?? steepest, steepest)
+        const result = compare(await run(settings), reference(input, full(settings)), width, tolerance)
         worst = Math.max(worst, result.worst)
         assert(result.over === 0, `settings ${i}: ${result.over} pixels off: ${result.detail}\n${JSON.stringify(settings)}`)
       }
@@ -374,10 +346,11 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
   })
 
   await check(report, group, 'Keys a recorded video in the colours a 2D canvas reads', async () => {
-    // With pure green as the key at this similarity, each of the picture's colours is either taken out or kept whole.
-    // In the fade between them, a level's difference in how the video is read moves alpha by many levels, and this
-    // check is of the colours read. Spill reaches 0.2 past similarity
-    const settings = { keyColor: 0x00ff00, similarity: 0.5, spill: 0.4 }
+    // With pure green as the key, and these settings, each of the picture's colours is either taken out or kept
+    // whole: the farthest taken out is 0.445 from the key, and the nearest kept 0.523, against a fade from 0.465 to
+    // 0.49. In the fade, a level's difference in how the video is read moves alpha by many levels, and this check is
+    // of the colours read
+    const settings = { keyColor: 0x00ff00, similarity: 465, smoothness: 25, spill: 25 }
     const video = await recordedVideo(source)
     const keyer = await make(video)
     try {
@@ -440,7 +413,7 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
       keyer.set({ similarity: DEFAULT_SETTINGS.similarity })
       keyer.render()
       assert(frame() === 1, `drew again for a setting that didn't change: frame ${frame()}`)
-      keyer.set({ similarity: 0.3 })
+      keyer.set({ similarity: 300 })
       keyer.render()
       assert(frame() === 2, `didn't draw a changed setting: frame ${frame()}`)
       keyer.invalidate()
@@ -520,7 +493,7 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
       const drawn = keyer.frame
       keyer.source = toCanvas(widePicture(limit + 1))
       for (let i = 0; i < 3; i++) assert(!keyer.render(), `render() drew a picture ${limit + 1} wide`)
-      keyer.set({ similarity: 0.3 })
+      keyer.set({ similarity: 300 })
       assert(!keyer.render(), 'a change of settings drew the last picture again')
       assert(calls() === 1, `onError was called ${calls()} times`)
       assert(errors[0] instanceof RangeError, `onError was given ${String(errors[0])}`)
@@ -560,7 +533,7 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
       await show(urls[1])
       assert(!keyer.render() && calls() === 1, `the first src it can't key: ${calls()} calls`)
       // The picture of the src before is still in the texture, and isn't drawn again
-      keyer.set({ similarity: 0.3 })
+      keyer.set({ similarity: 300 })
       assert(!keyer.render(), 'a change of settings drew the src before again')
       await show(urls[2])
       keyer.render()
@@ -587,10 +560,10 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
       const held = keyer.settings
       corners[0].x = 0.5
       assert(keyer.settings.corners[0].x === 0.1, 'a corner changed with the array it was given')
-      keyer.set({ similarity: 0.2 })
+      keyer.set({ similarity: 200 })
       assert(held.similarity === DEFAULT_SETTINGS.similarity, 'a settings object held changed')
       assert(Object.isFrozen(keyer.settings), 'the settings are not frozen')
-      for (const bad of [{ similarity: Number.NaN }, { keyColor: -1 }, { key: 1 }, { corners: [{ x: 0, y: 0 }] }]) {
+      for (const bad of [{ similarity: Number.NaN }, { keyColor: -1 }, { key: 1 }, { hueSpill: 'on' }, { corners: [{ x: 0, y: 0 }] }]) {
         let threw = false
         try {
           // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- wrong on purpose
@@ -601,8 +574,17 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
         assert(threw, `${JSON.stringify(bad)} was taken`)
       }
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- an unknown name on purpose
-      keyer.set({ similarity: 5, unknown: 1 } as unknown as Partial<Settings>)
-      assert(keyer.settings.similarity === 1, `similarity 5 came out ${keyer.settings.similarity}`)
+      keyer.set({ similarity: 5000, unknown: 1 } as unknown as Partial<Settings>)
+      assert(keyer.settings.similarity === 1000, `similarity 5000 came out ${keyer.settings.similarity}`)
+      // OBS keeps similarity, smoothness and spill as whole numbers from 1, and the rest as they come. Read through a
+      // function, as TypeScript would otherwise take the assertion above as fixing similarity for good
+      keyer.set({ similarity: 400.4, smoothness: 0, spill: 99.5, opacity: 0.12345 })
+      const now = () => keyer.settings
+      const { similarity, smoothness, spill, opacity } = now()
+      assert(
+        similarity === 400 && smoothness === 1 && spill === 100 && opacity === 0.12345,
+        `came out ${similarity}, ${smoothness}, ${spill}, ${opacity}`,
+      )
     } finally {
       keyer.dispose()
     }
@@ -675,8 +657,77 @@ export async function coreChecks(report: Report, backend: BackendName): Promise<
   }
 }
 
+// OBS's own numbers for its chroma key filter, as its source has them, so the library's can't drift from them: the
+// defaults, the sliders' ranges and steps, and the preset key colours. OBS writes colours as 0xbbggrr, so its blue,
+// 0xFF9900, is 0x0099ff here. The add-ons' defaults change nothing
+//   https://github.com/obsproject/obs-studio/blob/master/plugins/obs-filters/chroma-key-filter.c
+const OBS_DEFAULTS: Readonly<Partial<Settings>> = {
+  key: true,
+  keyColor: 0x00ff00,
+  similarity: 400,
+  smoothness: 80,
+  spill: 100,
+  opacity: 1,
+  contrast: 0,
+  brightness: 0,
+  gamma: 0,
+  hueSpill: false,
+  flip: false,
+  crop: false,
+  tint: 0xffffff,
+  saturation: 1,
+}
+const OBS_RANGES: Readonly<Partial<Record<NumericSetting, Range>>> = {
+  similarity: { min: 1, max: 1000, step: 1 },
+  smoothness: { min: 1, max: 1000, step: 1 },
+  spill: { min: 1, max: 1000, step: 1 },
+  opacity: { min: 0, max: 1, step: 0.0001 },
+  contrast: { min: -4, max: 4, step: 0.01 },
+  brightness: { min: -1, max: 1, step: 0.0001 },
+  gamma: { min: -1, max: 1, step: 0.01 },
+}
+const OBS_PRESETS: Readonly<typeof KEY_COLORS> = { green: 0x00ff00, blue: 0x0099ff, magenta: 0xff00ff }
+const FLAT_SETTINGS = [
+  'key',
+  'keyColor',
+  'similarity',
+  'smoothness',
+  'spill',
+  'opacity',
+  'contrast',
+  'brightness',
+  'gamma',
+  'hueSpill',
+  'flip',
+  'crop',
+  'tint',
+  'saturation',
+] as const
+const NUMBERS = ['similarity', 'smoothness', 'spill', 'opacity', 'contrast', 'brightness', 'gamma'] as const
+const PRESETS = ['green', 'blue', 'magenta'] as const
+
 // What doesn't depend on the backend
 export async function apiChecks(report: Report): Promise<void> {
+  await check(report, "OBS's settings", "Has OBS's defaults, ranges and preset keys", () => {
+    const wrong: string[] = []
+    for (const name of FLAT_SETTINGS) {
+      if (DEFAULT_SETTINGS[name] !== OBS_DEFAULTS[name]) {
+        wrong.push(`default ${name} is ${String(DEFAULT_SETTINGS[name])}, not ${String(OBS_DEFAULTS[name])}`)
+      }
+    }
+    for (const name of NUMBERS) {
+      const ours = RANGES[name]
+      const theirs = OBS_RANGES[name]
+      if (ours.min !== theirs?.min || ours.max !== theirs.max || ours.step !== theirs.step) {
+        wrong.push(`${name} is ${ours.min} to ${ours.max} by ${ours.step}`)
+      }
+    }
+    for (const name of PRESETS) {
+      if (KEY_COLORS[name] !== OBS_PRESETS[name]) wrong.push(`${name} is ${KEY_COLORS[name].toString(16)}`)
+    }
+    assert(wrong.length === 0, wrong.join('; '))
+  })
+
   const group = 'Choosing a backend'
   await check(report, group, "'auto' chooses WebGPU on the GPU, and WebGL2 otherwise", async () => {
     // What it should come to, by the adapter this page is offered. A fallback adapter runs WebGPU on the CPU
