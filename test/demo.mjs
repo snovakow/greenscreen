@@ -1,7 +1,7 @@
 // The demo app, driven in headless Chrome with a fake camera: the picture keyed, then Flip, Pick key, Edit crop with a
-// drag of a corner, and Reset. Then a picture opened with File, one too wide to key, a video dropped on the page, the
-// camera back with Camera, and a file that won't play. Each is read back from the keyed canvas. Serves the demo's
-// build, or with --dev its Vite server. Exits 1 if a step fails
+// drag of a corner, numbers typed and stepped in the panel, and Reset. Then a picture opened with File, one too wide to
+// key, a video dropped on the page, the camera back with Camera, and a file that won't play. Each is read back from the
+// keyed canvas. Serves the demo's build, or with --dev its Vite server. Exits 1 if a step fails
 //   node test/demo.mjs [--dev]
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -171,6 +171,17 @@ try {
       field.dispatchEvent(new Event('change', { bubbles: true }))
       return true
     })()`)
+  // Presses the down arrow in a lil-gui control's field, by the control's name, as many times as asked
+  const stepDown = (name, times) =>
+    page.evaluate(`(() => {
+      const controller = [...document.querySelectorAll('.lil-gui .lil-controller')]
+        .find((element) => element.querySelector('.lil-name')?.textContent === ${JSON.stringify(name)})
+      const field = controller?.querySelector('input')
+      if (!field) return false
+      const arrow = { key: 'ArrowDown', code: 'ArrowDown', bubbles: true, cancelable: true }
+      for (let i = 0; i < ${times}; i++) field.dispatchEvent(new KeyboardEvent('keydown', arrow))
+      return true
+    })()`)
   const box = (selector) =>
     page.evaluate(`(() => {
       const rect = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect()
@@ -284,6 +295,16 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 300))
   const small = await box('.preview video')
   expect('Escape puts the eyedropper down', small && small.width <= 161, small && `${Math.round(small.width)} wide`)
+
+  // OBS's Contrast, Brightness and Gamma start below 0, and lil-gui counts a slider's steps from its minimum, which can
+  // leave a value a hair off its step: −0.0499999999999999 for −0.05. Typed in, or stepped to with the arrow keys, a
+  // number lands on its step
+  await enter('Brightness', -0.05)
+  const typed = await numberIn('Brightness')
+  expect('a number typed in lands on its step', typed === -0.05, String(typed))
+  await stepDown('Contrast', 9)
+  const stepped = await numberIn('Contrast')
+  expect('and one stepped to with the arrow keys', stepped === -0.09, String(stepped))
 
   await control('Reset')
   const reset = await until((at) => at.green[3] === 0 && at.blue[3] === 255)
