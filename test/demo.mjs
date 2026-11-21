@@ -351,6 +351,19 @@ try {
     fits.length === Object.keys(NUMBERS).length && fits.every(({ width, room }) => width <= room),
     `tightest ${tightest.name}'s ${tightest.widest}, ${tightest.width.toFixed(1)}px in ${tightest.room.toFixed(1)}px`,
   )
+  // On a touch screen lil-gui's touch styles size the fields, at 50px, which the stylesheet's rule leaves alone
+  const coarse = `matchMedia('(pointer: coarse)').matches`
+  const fields = `[...document.querySelectorAll('.lil-gui .lil-controller.lil-number input')]
+    .map((input) => input.getBoundingClientRect().width)`
+  await page.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 })
+  const touch = await poll(() => page.evaluate(`({ coarse: ${coarse}, widths: ${fields} })`), (result) => result.coarse)
+  await page.send('Emulation.setTouchEmulationEnabled', { enabled: false })
+  await poll(() => page.evaluate(coarse), (matches) => !matches)
+  expect(
+    "and on a touch screen they're lil-gui's own",
+    touch.coarse && touch.widths.length === Object.keys(NUMBERS).length && touch.widths.every((width) => width >= 50),
+    `${touch.coarse ? 'touch' : 'no touch'}, ${touch.widths.join(', ')}px`,
+  )
 
   await control('Reset')
   const reset = await until((at) => at.green[3] === 0 && at.blue[3] === 255)
